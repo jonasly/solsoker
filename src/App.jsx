@@ -401,7 +401,7 @@ export default function App() {
         )
         const now = data.properties.timeseries[0].data.instant.details
         const sol = 1 - now.cloud_area_fraction/100
-        const tempScore = 1 - Math.min(Math.abs(now.air_temperature - 25)/15,1)
+        const tempScore = 1 - Math.min(Math.abs(now.air_temperature - 25)/20,1)
         const windScore = 1 - Math.min(now.wind_speed/15,1)
         const score = wSol*sol + wTemp*tempScore + wWind*windScore
           
@@ -658,7 +658,7 @@ export default function App() {
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
-            style={{ touchAction: 'none', cursor: 'pointer', userSelect: 'none', background: '#f0f8f0', borderRadius: 8 }}
+            style={{ touchAction: 'none', cursor: 'pointer', userSelect: 'none', background: '#f0f8f0', borderRadius: 8, overflow: 'visible' }}
           >
             {/* Triangle */}
             <polygon points={`${vA.x},${vA.y} ${vB.x},${vB.y} ${vC.x},${vC.y}`} fill="#f7fbff" stroke="#cfe3ff" strokeWidth="2" />
@@ -701,17 +701,29 @@ export default function App() {
             })}
 
             {/* Labels */}
-            <text x={vA.x} y={vA.y - 8} textAnchor="middle" fontSize="14">☀️</text>
-            <text x={vB.x - 6} y={vB.y + 16} textAnchor="end" fontSize="14">🌡️</text>
-            <text x={vC.x + 6} y={vC.y + 16} textAnchor="start" fontSize="14">💨</text>
+            <text x={vA.x} y={vA.y - 12} textAnchor="middle" fontSize="18" style={{ zIndex: 10 }}>☀️</text>
+            <text x={vB.x - 8} y={vB.y + 20} textAnchor="end" fontSize="18" style={{ zIndex: 10 }}>🌡️</text>
+            <text x={vC.x + 8} y={vC.y + 20} textAnchor="start" fontSize="18" style={{ zIndex: 10 }}>💨</text>
 
             {/* Selector */}
             <circle cx={selectorPos.x} cy={selectorPos.y} r="7" fill="#2d7ff9" stroke="white" strokeWidth="2" />
           </svg>
-          <div style={{ minWidth: 140, fontSize: 13, color: '#34495e' }}>
-            <div>☀️ Sol: {(solWeight * 100).toFixed(0)}%</div>
-            <div>🌡️ Temp: {(tempWeight * 100).toFixed(0)}%</div>
-            <div>💨 Vind: {(windWeight * 100).toFixed(0)}%</div>
+          <div style={{ minWidth: 140, fontSize: 12, color: '#34495e' }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2px' }}>
+              <span style={{ fontSize: '14px', marginRight: '6px' }}>☀️</span>
+              <span style={{ minWidth: '30px', textAlign: 'right', marginRight: '6px' }}>{(solWeight * 100).toFixed(0)}%</span>
+              <span>- Mest mulig solskinn</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2px' }}>
+              <span style={{ fontSize: '14px', marginRight: '6px' }}>🌡️</span>
+              <span style={{ minWidth: '30px', textAlign: 'right', marginRight: '6px' }}>{(tempWeight * 100).toFixed(0)}%</span>
+              <span>- Temperatur nærmest mulig 25 grader</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <span style={{ fontSize: '14px', marginRight: '6px' }}>💨</span>
+              <span style={{ minWidth: '30px', textAlign: 'right', marginRight: '6px' }}>{(windWeight * 100).toFixed(0)}%</span>
+              <span>- Minst mulig vind</span>
+            </div>
           </div>
         </div>
       </fieldset>
@@ -720,11 +732,9 @@ export default function App() {
 
 
       {showManualInput && (
-        <div style={{ marginBottom: '1rem', textAlign: 'center', background: '#fff3cd', padding: '1rem', borderRadius: 8, border: '1px solid #ffeaa7' }}>
-          <p style={{ margin: '0 0 1rem 0', color: '#856404' }}>
-            <strong>Skriv inn din posisjon</strong>
-          </p>
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', alignItems: 'flex-start', position: 'relative' }}>
+        <div style={{ marginBottom: '1rem', background: '#fff3cd', padding: '1rem', borderRadius: 8, border: '1px solid #ffeaa7', position: 'relative' }}>
+          <div style={{ position: 'absolute', top: '0.5rem', left: '0.5rem', fontWeight: 'bold', fontSize: '1rem', color: '#2c3e50', backgroundColor: '#fff3cd', padding: '0 0.5rem' }}>Posisjon</div>
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', alignItems: 'center', position: 'relative', minHeight: '60px' }}>
             <div style={{ position: 'relative' }} ref={suggestionsBoxRef}>
               <input
               type="text"
