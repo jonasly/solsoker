@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import sunIcon from './assets/symbols/sun.png'
 import temperatureIcon from './assets/symbols/temperature.png'
 import windIcon from './assets/symbols/wind.png'
+import stormIcon from './assets/symbols/storm.png'
 
 // Leaflet map component with radius circle
 const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeatherSpots }) => {
@@ -767,7 +768,7 @@ export default function App() {
             border: 'none',
             cursor: 'pointer',
             fontSize: '24px',
-            color: darkMode ? '#fff' : '#2c3e50',
+            color: darkMode ? '#ff6b6b' : '#f4d03f',
             padding: '8px',
             display: 'flex',
             alignItems: 'center',
@@ -786,13 +787,12 @@ export default function App() {
         <button
           onClick={() => setDarkMode(!darkMode)}
           style={{
-            background: darkMode ? '#2c3e50' : '#2a2a2a',
+            background: '#2c3e50',
             color: '#fff',
             border: 'none',
             borderRadius: '50%',
             width: '40px',
             height: '40px',
-            fontSize: '18px',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -802,7 +802,11 @@ export default function App() {
           }}
           title={darkMode ? 'Switch to Solsøker' : 'Switch to Stormsøker'}
         >
-          {darkMode ? '🌞' : '⛈️'}
+          {darkMode ? (
+            <img src={sunIcon} alt="Sun" style={{ width: '20px', height: '20px', filter: 'invert(1)' }} />
+          ) : (
+            <img src={stormIcon} alt="Storm" style={{ width: '20px', height: '20px', filter: 'invert(1)' }} />
+          )}
         </button>
       </div>
       
