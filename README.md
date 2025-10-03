@@ -30,13 +30,13 @@ docker build -t solsoker:latest .
 
 ### 3. Run the Application
 ```bash
-docker run --name solsoker -d -p 8080:80 solsoker:latest
+docker run --name solsoker -d -p 8081:80 solsoker:latest
 ```
 
 ### 4. Access the App
 Open your browser and navigate to:
 ```
-http://localhost:8080
+http://localhost:8081
 ```
 
 ## 🔧 Development Commands
@@ -50,7 +50,7 @@ docker rm -f solsoker
 docker build -t solsoker:latest .
 
 # Run new container
-docker run --name solsoker -d -p 8080:80 solsoker:latest
+docker run --name solsoker -d -p 8081:80 solsoker:latest
 ```
 
 ### View Container Logs
@@ -127,7 +127,7 @@ FROM nginx:alpine
 
 ### Container Details
 - **Base Image**: nginx:alpine
-- **Port**: 80 (mapped to host 8080)
+- **Port**: 80 (mapped to host 8081)
 - **Volume**: Static files from build stage
 - **Health Check**: HTTP endpoint available
 
@@ -145,8 +145,8 @@ FROM nginx:alpine
 #### Port Already in Use
 ```bash
 # Use different port
-docker run --name solsoker -d -p 8081:80 solsoker:latest
-# Then access: http://localhost:8081
+docker run --name solsoker -d -p 8082:80 solsoker:latest
+# Then access: http://localhost:8082
 ```
 
 #### Container Won't Start
@@ -155,7 +155,7 @@ docker run --name solsoker -d -p 8081:80 solsoker:latest
 docker logs solsoker
 
 # Check if port is available
-netstat -tulpn | grep 8080
+netstat -tulpn | grep 8081
 ```
 
 #### Changes Not Appearing
@@ -164,7 +164,7 @@ netstat -tulpn | grep 8080
 # Or rebuild container completely
 docker rm -f solsoker
 docker build -t solsoker:latest .
-docker run --name solsoker -d -p 8080:80 solsoker:latest
+docker run --name solsoker -d -p 8081:80 solsoker:latest
 ```
 
 ## 📝 Development
@@ -224,7 +224,7 @@ For issues or questions:
 - Check the troubleshooting section above
 - Review Docker logs: `docker logs solsoker`
 - Ensure Docker Desktop is running
-- Verify port 8080 is available
+- Verify port 8081 is available
 
 ---
 

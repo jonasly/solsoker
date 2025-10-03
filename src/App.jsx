@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 
 // Leaflet map component with radius circle
-const LeafletMap = ({ center, bestLocation, userLocation, searchRadius }) => {
+const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeatherSpots }) => {
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
   const markersRef = useRef([])
@@ -77,6 +77,35 @@ const LeafletMap = ({ center, bestLocation, userLocation, searchRadius }) => {
       markersRef.current.push(bestMarker)
     }
 
+    // Add top 3 weather spots markers
+    if (topWeatherSpots && topWeatherSpots.length > 0) {
+      topWeatherSpots.forEach((spot, index) => {
+        const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1'] // Red, teal, blue
+        const color = colors[index] || '#666'
+        const marker = window.L.marker([spot.lat, spot.lon], {
+          icon: window.L.divIcon({
+            className: 'custom-marker',
+            html: `<div style="background-color: ${color}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; color: white;">${spot.rank}</div>`,
+            iconSize: [18, 18],
+            iconAnchor: [9, 9]
+          })
+        }).addTo(map)
+        
+        // Add popup with weather info
+        marker.bindPopup(`
+          <div style="font-size: 12px; line-height: 1.4;">
+            <strong>#${spot.rank} ${spot.name}</strong><br>
+            Score: ${(spot.score * 100).toFixed(1)}%<br>
+            Temp: ${spot.temp.toFixed(1)}°C<br>
+            Sky: ${(100 - spot.cloud).toFixed(0)}% clear<br>
+            Wind: ${spot.wind.toFixed(1)} m/s
+          </div>
+        `)
+        
+        markersRef.current.push(marker)
+      })
+    }
+
     // Add search radius circle
     if (searchRadius > 0) {
       console.log('Adding search radius circle:', { searchRadius, center })
@@ -90,7 +119,7 @@ const LeafletMap = ({ center, bestLocation, userLocation, searchRadius }) => {
       }).addTo(map)
       circleRef.current = circle
     }
-  }, [bestLocation, userLocation, searchRadius]) // Only update when these change
+  }, [bestLocation, userLocation, searchRadius, topWeatherSpots]) // Only update when these change
 
   return <div ref={mapRef} style={{ width: '100%', height: '400px', borderRadius: 8 }} />
 }
@@ -189,6 +218,7 @@ export default function App() {
   const [showMap, setShowMap] = useState(false)
   const [mapCenter, setMapCenter] = useState({ lat: 0, lng: 0 })
   const [bestLocation, setBestLocation] = useState(null)
+  const [topWeatherSpots, setTopWeatherSpots] = useState([])
   
   // State for radius selection
   const [searchRadius, setSearchRadius] = useState(10) // km
@@ -196,6 +226,9 @@ export default function App() {
   // State for workflow
   const [hasLocation, setHasLocation] = useState(false)
   const [showSearchButton, setShowSearchButton] = useState(false)
+  
+  // Dark mode state
+  const [darkMode, setDarkMode] = useState(false)
 
   // Vekt-prioriteringer for faktorer
   const [solWeight, setSolWeight] = useState(0.7)
@@ -205,10 +238,14 @@ export default function App() {
   // Ternary control position (in px within SVG)
   const TRI_W = 260
   const TRI_H = 230
-  const PADDING = 20
-  const vA = { x: TRI_W / 2, y: PADDING } // ☀️ Sol (top)
-  const vB = { x: PADDING, y: TRI_H - PADDING } // 🌡️ Temp (bottom-left)
-  const vC = { x: TRI_W - PADDING, y: TRI_H - PADDING } // 💨 Vind (bottom-right)
+  const centerX = TRI_W / 2
+  const centerY = TRI_H / 2 + 20
+  const radius = 110
+  
+  // Regular equilateral triangle with equal sides
+  const vA = { x: centerX, y: centerY - radius }                    // ☀️ Sol (top)
+  const vB = { x: centerX - radius * Math.cos(Math.PI/6), y: centerY + radius * Math.sin(Math.PI/6) }  // 🌡️ Temp (bottom-left)
+  const vC = { x: centerX + radius * Math.cos(Math.PI/6), y: centerY + radius * Math.sin(Math.PI/6) }  // 💨 Vind (bottom-right)
 
   const weightsToPoint = (wA, wB, wC) => ({
     x: wA * vA.x + wB * vB.x + wC * vC.x,
@@ -352,6 +389,7 @@ export default function App() {
     
     let bestPoint = null
     let bestScore = -Infinity
+    let allWeatherSpots = [] // Collect all weather spots for ranking
     let currentCenter = { lat: latitude, lng: longitude }
     let currentRadius = maxRadiusKm
     
@@ -402,8 +440,22 @@ export default function App() {
         const now = data.properties.timeseries[0].data.instant.details
         const sol = 1 - now.cloud_area_fraction/100
         const tempScore = 1 - Math.min(Math.abs(now.air_temperature - 25)/20,1)
-        const windScore = 1 - Math.min(now.wind_speed/15,1)
+        const windScore = darkMode 
+          ? 1 - Math.min(Math.abs(now.wind_speed - 17)/17, 1) // Storm mode: 17 m/s optimal
+          : 1 - Math.min(now.wind_speed/15,1) // Normal mode: low wind preferred
         const score = wSol*sol + wTemp*tempScore + wWind*windScore
+        
+        // Collect all weather spots for ranking
+        allWeatherSpots.push({
+          lat: p.lat,
+          lon: p.lon,
+          temp: now.air_temperature,
+          cloud: now.cloud_area_fraction,
+          wind: now.wind_speed,
+          gust: now.wind_speed_of_gust ?? null,
+          symbolCode: data.properties.timeseries[0].data.next_1_hours?.summary?.symbol_code || '',
+          score: score
+        })
           
           if (score > iterationBestScore) {
             iterationBestScore = score
@@ -440,6 +492,31 @@ export default function App() {
       // Early termination if radius becomes too small
       if (currentRadius < 1.5) break
       }
+
+      // Get top 3 weather spots
+      const sortedSpots = allWeatherSpots
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+      
+      // Get place names for top spots
+      const topSpotsWithNames = await Promise.all(
+        sortedSpots.map(async (spot, index) => {
+          try {
+            const geoRes = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?lat=${spot.lat}&lon=${spot.lon}&format=json`,
+              { headers: { 'User-Agent': 'solsoker/1.0' } }
+            )
+            const geoData = await geoRes.json()
+            const addr = geoData.address || {}
+            const name = addr.city || addr.town || addr.village || addr.hamlet || geoData.display_name || `Spot ${index + 1}`
+            return { ...spot, name, rank: index + 1 }
+          } catch {
+            return { ...spot, name: `Spot ${index + 1}`, rank: index + 1 }
+          }
+        })
+      )
+      
+      setTopWeatherSpots(topSpotsWithNames)
 
       // Hent stedsnavn for beste punkt
       let placeName;
@@ -634,7 +711,26 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div style={{ fontFamily: 'Segoe UI, sans-serif', padding: '2rem', maxWidth: 900, margin: 'auto' }}>
+      <div style={{ 
+        fontFamily: 'Segoe UI, sans-serif', 
+        padding: '2rem', 
+        maxWidth: 900, 
+        margin: 'auto',
+        backgroundColor: darkMode ? '#1a1a1a' : '#fff',
+        color: darkMode ? '#fff' : '#000',
+        minHeight: '100vh',
+        transition: 'all 0.3s ease'
+      }}>
+        <style>{`
+          body {
+            background-color: ${darkMode ? '#1a1a1a' : '#fff'};
+            color: ${darkMode ? '#fff' : '#000'};
+            transition: all 0.3s ease;
+          }
+          html {
+            background-color: ${darkMode ? '#1a1a1a' : '#fff'};
+          }
+        `}</style>
       <style>{`
         @keyframes wave {
           0%, 80%, 100% {
@@ -645,10 +741,52 @@ export default function App() {
           }
         }
       `}</style>
-      <h1 style={{ textAlign: 'center', color: '#f4d03f' }}>Solsøker</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div></div> {/* Empty div for spacing */}
+        <h1 style={{ textAlign: 'center', color: darkMode ? '#ff6b6b' : '#f4d03f', margin: 0 }}>
+          {darkMode ? 'Stormsøker' : 'Solsøker'}
+        </h1>
+      <button
+        onClick={() => setDarkMode(!darkMode)}
+        style={{
+          background: darkMode ? '#2c3e50' : '#2a2a2a',
+          color: '#fff',
+          border: 'none',
+          borderRadius: '50%',
+          width: '40px',
+          height: '40px',
+          fontSize: '18px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+          transition: 'all 0.3s ease'
+        }}
+        title={darkMode ? 'Switch to Solsøker' : 'Switch to Stormsøker'}
+      >
+        {darkMode ? '🌞' : '⛈️'}
+      </button>
+      </div>
       {/* Sliders for vekter */}
-      <fieldset style={{ border: '2px solid #d4e6d4', borderRadius: 8, padding: '1rem', marginBottom: '1rem', backgroundColor: '#f0f8f0', position: 'relative' }}>
-        <div style={{ position: 'absolute', top: '0.5rem', left: '0.5rem', fontWeight: 'bold', fontSize: '1rem', color: '#2c3e50', backgroundColor: '#f0f8f0', padding: '0 0.5rem' }}>Prioriter værfaktorer</div>
+      <fieldset style={{ 
+        border: darkMode ? '2px solid #444' : '2px solid #d4e6d4', 
+        borderRadius: 8, 
+        padding: '1rem', 
+        marginBottom: '1rem', 
+        backgroundColor: darkMode ? '#2a2a2a' : '#f0f8f0', 
+        position: 'relative' 
+      }}>
+        <div style={{ 
+          position: 'absolute', 
+          top: '0.5rem', 
+          left: '0.5rem', 
+          fontWeight: 'bold', 
+          fontSize: '1rem', 
+          color: darkMode ? '#fff' : '#2c3e50', 
+          backgroundColor: darkMode ? '#2a2a2a' : '#f0f8f0', 
+          padding: '0 0.5rem' 
+        }}>Prioriter værfaktorer</div>
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
           <svg
             ref={svgRef}
@@ -658,7 +796,7 @@ export default function App() {
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
-            style={{ touchAction: 'none', cursor: 'pointer', userSelect: 'none', background: '#f0f8f0', borderRadius: 8, overflow: 'visible' }}
+            style={{ touchAction: 'none', cursor: 'pointer', userSelect: 'none', background: darkMode ? '#2a2a2a' : '#f0f8f0', borderRadius: 8, overflow: 'visible' }}
           >
             {/* Triangle */}
             <polygon points={`${vA.x},${vA.y} ${vB.x},${vB.y} ${vC.x},${vC.y}`} fill="#f7fbff" stroke="#cfe3ff" strokeWidth="2" />
@@ -708,7 +846,7 @@ export default function App() {
             {/* Selector */}
             <circle cx={selectorPos.x} cy={selectorPos.y} r="7" fill="#2d7ff9" stroke="white" strokeWidth="2" />
           </svg>
-          <div style={{ minWidth: 140, fontSize: 12, color: '#34495e' }}>
+          <div style={{ minWidth: 140, fontSize: 12, color: darkMode ? '#fff' : '#34495e' }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2px' }}>
               <span style={{ fontSize: '14px', marginRight: '6px' }}>☀️</span>
               <span style={{ minWidth: '30px', textAlign: 'right', marginRight: '6px' }}>{(solWeight * 100).toFixed(0)}%</span>
@@ -718,12 +856,12 @@ export default function App() {
               <span style={{ fontSize: '14px', marginRight: '6px' }}>🌡️</span>
               <span style={{ minWidth: '30px', textAlign: 'right', marginRight: '6px' }}>{(tempWeight * 100).toFixed(0)}%</span>
               <span>- Temperatur nærmest mulig 25 grader</span>
-            </div>
+          </div>
             <div style={{ display: 'flex', alignItems: 'center' }}>
               <span style={{ fontSize: '14px', marginRight: '6px' }}>💨</span>
               <span style={{ minWidth: '30px', textAlign: 'right', marginRight: '6px' }}>{(windWeight * 100).toFixed(0)}%</span>
-              <span>- Minst mulig vind</span>
-            </div>
+              <span>- {darkMode ? 'Sterk vind (17 m/s optimal)' : 'Minst mulig vind'}</span>
+          </div>
           </div>
         </div>
       </fieldset>
@@ -732,8 +870,24 @@ export default function App() {
 
 
       {showManualInput && (
-        <div style={{ marginBottom: '1rem', background: '#fff3cd', padding: '1rem', borderRadius: 8, border: '1px solid #ffeaa7', position: 'relative' }}>
-          <div style={{ position: 'absolute', top: '0.5rem', left: '0.5rem', fontWeight: 'bold', fontSize: '1rem', color: '#2c3e50', backgroundColor: '#fff3cd', padding: '0 0.5rem' }}>Posisjon</div>
+        <div style={{ 
+          marginBottom: '1rem', 
+          background: darkMode ? '#2a2a2a' : '#fff3cd', 
+          padding: '1rem', 
+          borderRadius: 8, 
+          border: darkMode ? '1px solid #444' : '1px solid #ffeaa7', 
+          position: 'relative' 
+        }}>
+          <div style={{ 
+            position: 'absolute', 
+            top: '0.5rem', 
+            left: '0.5rem', 
+            fontWeight: 'bold', 
+            fontSize: '1rem', 
+            color: darkMode ? '#fff' : '#2c3e50', 
+            backgroundColor: darkMode ? '#2a2a2a' : '#fff3cd', 
+            padding: '0 0.5rem' 
+          }}>Posisjon</div>
           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', alignItems: 'center', position: 'relative', minHeight: '60px' }}>
             <div style={{ position: 'relative' }} ref={suggestionsBoxRef}>
               <input
@@ -813,18 +967,50 @@ export default function App() {
         </div>
       )}
 
-
+      
       {/* Map Display - Show after location is set */}
       {showMap && mapCenter && mapCenter.lat && mapCenter.lng && (
-        <div style={{ marginTop: '1rem', border: '1px solid #ccc', borderRadius: 8, padding: '1rem', backgroundColor: '#f9f9f9' }}>
-          <h3 style={{ marginTop: 0, color: '#2c3e50' }}>Kart</h3>
+        <div style={{ 
+          marginTop: '1rem', 
+          border: darkMode ? '1px solid #444' : '1px solid #ccc', 
+          borderRadius: 8, 
+          padding: '1rem', 
+          backgroundColor: darkMode ? '#2a2a2a' : '#f9f9f9',
+          position: 'relative'
+        }}>
+          <div style={{ 
+            position: 'absolute', 
+            top: '0.5rem', 
+            left: '0.5rem', 
+            fontWeight: 'bold', 
+            fontSize: '1rem', 
+            color: darkMode ? '#fff' : '#2c3e50', 
+            backgroundColor: darkMode ? '#2a2a2a' : '#f9f9f9', 
+            padding: '0 0.5rem' 
+          }}>Kart</div>
           
           {/* Location info */}
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
-            <div style={{ textAlign: 'center', padding: '1rem', backgroundColor: 'white', borderRadius: 8, border: '1px solid #ddd' }}>
-              <div style={{ fontWeight: 'bold', color: '#2c3e50', marginBottom: '0.5rem' }}>Din posisjon</div>
-              <div style={{ fontSize: '0.9rem', color: '#666' }}>{userLocation?.name || 'Ukjent'}</div>
-              <div style={{ fontSize: '0.8rem', color: '#999' }}>
+            <div style={{ 
+              textAlign: 'center', 
+              padding: '1rem', 
+              backgroundColor: darkMode ? '#1a1a1a' : 'white', 
+              borderRadius: 8, 
+              border: darkMode ? '1px solid #444' : '1px solid #ddd' 
+            }}>
+              <div style={{ 
+                fontWeight: 'bold', 
+                color: darkMode ? '#fff' : '#2c3e50', 
+                marginBottom: '0.5rem' 
+              }}>Din posisjon</div>
+              <div style={{ 
+                fontSize: '0.9rem', 
+                color: darkMode ? '#ccc' : '#666' 
+              }}>{userLocation?.name || 'Ukjent'}</div>
+              <div style={{ 
+                fontSize: '0.8rem', 
+                color: darkMode ? '#999' : '#999' 
+              }}>
                 {mapCenter.lat.toFixed(4)}, {mapCenter.lng.toFixed(4)}
               </div>
             </div>
@@ -832,10 +1018,26 @@ export default function App() {
             {bestLocation && (
               <>
                 <div style={{ fontSize: '1.5rem', color: '#666' }}>→</div>
-                <div style={{ textAlign: 'center', padding: '1rem', backgroundColor: '#e8f5e8', borderRadius: 8, border: '1px solid #4caf50' }}>
-                  <div style={{ fontWeight: 'bold', color: '#2c3e50', marginBottom: '0.5rem' }}>Beste vær</div>
-                  <div style={{ fontSize: '0.9rem', color: '#666' }}>{bestLocation?.name || 'Ukjent'}</div>
-                  <div style={{ fontSize: '0.8rem', color: '#999' }}>
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '1rem', 
+                  backgroundColor: darkMode ? '#1a3a1a' : '#e8f5e8', 
+                  borderRadius: 8, 
+                  border: darkMode ? '1px solid #4caf50' : '1px solid #4caf50' 
+                }}>
+                  <div style={{ 
+                    fontWeight: 'bold', 
+                    color: darkMode ? '#fff' : '#2c3e50', 
+                    marginBottom: '0.5rem' 
+                  }}>Beste vær</div>
+                  <div style={{ 
+                    fontSize: '0.9rem', 
+                    color: darkMode ? '#ccc' : '#666' 
+                  }}>{bestLocation?.name || 'Ukjent'}</div>
+                  <div style={{ 
+                    fontSize: '0.8rem', 
+                    color: darkMode ? '#999' : '#999' 
+                  }}>
                     {bestLocation?.lat.toFixed(4)}, {bestLocation?.lng.toFixed(4)}
                   </div>
                 </div>
@@ -847,7 +1049,7 @@ export default function App() {
           <div style={{ 
             marginBottom: '1rem', 
             padding: '1rem', 
-            backgroundColor: '#f8f9fa', 
+            backgroundColor: darkMode ? '#d3d3d3' : '#f8f9fa', 
             border: '1px solid #dee2e6', 
             borderRadius: 8,
             textAlign: 'center'
@@ -961,6 +1163,7 @@ export default function App() {
               bestLocation={bestLocation} 
               userLocation={userLocation}
               searchRadius={searchRadius}
+              topWeatherSpots={topWeatherSpots}
             />
             
             {/* Legend */}
@@ -968,21 +1171,57 @@ export default function App() {
               position: 'absolute', 
               bottom: '10px', 
               left: '10px', 
-              backgroundColor: 'rgba(255,255,255,0.95)',
+              backgroundColor: darkMode ? 'rgba(42,42,42,0.95)' : 'rgba(255,255,255,0.95)',
+              color: darkMode ? '#fff' : '#000',
               padding: '0.75rem',
               borderRadius: 6,
               fontSize: '0.85rem',
               boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-              zIndex: 1000
+              zIndex: 1000,
+              maxWidth: '200px'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem' }}>
                 <div style={{ width: '10px', height: '10px', backgroundColor: '#2196f3', borderRadius: '50%', marginRight: '0.5rem' }}></div>
                 Din posisjon
               </div>
               {bestLocation && (
-                <div style={{ display: 'flex', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem' }}>
                   <div style={{ width: '10px', height: '10px', backgroundColor: '#4caf50', borderRadius: '50%', marginRight: '0.5rem' }}></div>
                   Beste vær
+                </div>
+              )}
+              {topWeatherSpots && topWeatherSpots.length > 0 && (
+                <div style={{ borderTop: '1px solid #eee', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: '0.25rem', fontSize: '0.8rem' }}>Topp 3 vær:</div>
+                  {topWeatherSpots.map((spot, index) => {
+                    const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1']
+                    const color = colors[index] || '#666'
+                    return (
+                      <div key={index} style={{ display: 'flex', alignItems: 'center', marginBottom: '0.15rem', fontSize: '0.75rem' }}>
+                        <div style={{ 
+                          width: '12px', 
+                          height: '12px', 
+                          backgroundColor: color, 
+                          borderRadius: '50%', 
+                          marginRight: '0.4rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'white',
+                          fontSize: '8px',
+                          fontWeight: 'bold'
+                        }}>
+                          {spot.rank}
+                        </div>
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {spot.name}
+                        </span>
+                        <span style={{ color: '#666', marginLeft: '0.25rem' }}>
+                          {(spot.score * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -992,19 +1231,34 @@ export default function App() {
       )}
 
       {best && (
-        <div style={{ background:'white', padding:'1.5rem', borderRadius:10, boxShadow:'0 2px 8px rgba(0,0,0,0.1)', marginTop:'1.5rem' }}>
-          <h2 style={{ color:'#34495e' }}>Beste sted: {best.name}</h2>
-          <p>Temperatur nå: <strong>{best.temp}°C</strong></p>
-          <p>Skydekke nå: <strong>{best.cloud}%</strong></p>
-          <p>
+        <div style={{ 
+          background: darkMode ? '#2a2a2a' : 'white', 
+          padding:'1.5rem', 
+          borderRadius:10, 
+          boxShadow: darkMode ? '0 2px 8px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.1)', 
+          marginTop:'1.5rem',
+          color: darkMode ? '#fff' : '#000'
+        }}>
+          <h2 style={{ color: darkMode ? '#fff' : '#34495e' }}>Beste sted: {best.name}</h2>
+          <p style={{ color: darkMode ? '#fff' : '#000' }}>Temperatur nå: <strong>{best.temp}°C</strong></p>
+          <p style={{ color: darkMode ? '#fff' : '#000' }}>Skydekke nå: <strong>{best.cloud}%</strong></p>
+          <p style={{ color: darkMode ? '#fff' : '#000' }}>
             Vind nå: <strong>{best.wind.toFixed(1)} m/s</strong>
             {best.gust !== null && (
               <>&nbsp;– kast: <strong>{best.gust.toFixed(1)} m/s</strong></>
             )}
           </p>
 
-          <h3>Værmelding (neste 24 timer)</h3>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr 3fr', textAlign:'left', fontWeight:'bold', borderBottom:'2px solid #ddd', paddingBottom:'0.5rem' }}>
+          <h3 style={{ color: darkMode ? '#fff' : '#000' }}>Værmelding (neste 24 timer)</h3>
+          <div style={{ 
+            display:'grid', 
+            gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr 3fr', 
+            textAlign:'left', 
+            fontWeight:'bold', 
+            borderBottom: darkMode ? '2px solid #444' : '2px solid #ddd', 
+            paddingBottom:'0.5rem',
+            color: darkMode ? '#fff' : '#000'
+          }}>
             <div>Tid</div><div>Vær</div><div>Temp.</div><div>Nedbør mm</div><div>Vind (m/s, kast)</div><div>Vindbeskrivelse</div>
           </div>
           {best.forecast.slice(0,24).map(f => {
@@ -1024,11 +1278,18 @@ export default function App() {
             const desc = `${beauName} fra ${dirName}`
 
             return (
-              <div key={f.time} style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr 3fr', padding:'0.5rem 0', borderBottom:'1px solid #eee', alignItems:'center' }}>
+              <div key={f.time} style={{ 
+                display:'grid', 
+                gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr 3fr', 
+                padding:'0.5rem 0', 
+                borderBottom: darkMode ? '1px solid #444' : '1px solid #eee', 
+                alignItems:'center',
+                color: darkMode ? '#fff' : '#000'
+              }}>
                 <div>{time}</div>
                 <div>{iconUrl ? <img src={iconUrl} alt={sym} style={{width:24,height:24}} /> : '❓'}</div>
                 <div>{det.air_temperature}°</div>
-                <div style={{color:'#007aff'}}>{precip}</div>
+                <div style={{color: darkMode ? '#4fc3f7' : '#007aff'}}>{precip}</div>
                 <div>{`${speed}${gustF ? `, ${gustF}` : ''} ${arrow}`}</div>
                 <div style={{ textAlign:'left' }}>{desc}</div>
               </div>
@@ -1037,7 +1298,7 @@ export default function App() {
         </div>
       )}
 
-      </div>
+    </div>
     </ErrorBoundary>
   )
 }
