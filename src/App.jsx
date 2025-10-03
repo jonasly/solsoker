@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
+import sunIcon from './assets/symbols/sun.png'
+import temperatureIcon from './assets/symbols/temperature.png'
+import windIcon from './assets/symbols/wind.png'
 
 // Leaflet map component with radius circle
 const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeatherSpots }) => {
@@ -246,9 +249,9 @@ export default function App() {
   const [showInfo, setShowInfo] = useState(false)
 
   // Vekt-prioriteringer for faktorer
-  const [solWeight, setSolWeight] = useState(0.7)
-  const [tempWeight, setTempWeight] = useState(0.3)
-  const [windWeight, setWindWeight] = useState(0)
+  const [solWeight, setSolWeight] = useState(1/3)
+  const [tempWeight, setTempWeight] = useState(1/3)
+  const [windWeight, setWindWeight] = useState(1/3)
 
   // Ternary control position (in px within SVG)
   const TRI_W = 260
@@ -818,7 +821,7 @@ export default function App() {
           <div style={{ marginBottom: '1rem' }}>
             <h4 style={{ color: darkMode ? '#fff' : '#2c3e50', marginBottom: '0.5rem' }}>1. Prioriter værfaktorer</h4>
             <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.4' }}>
-              Bruk trekanten til å prioritere sol (☀️), temperatur (🌡️) og vind (💨). 
+              Bruk trekanten til å prioritere sol, temperatur og vind. 
               Dra den blå prikken for å justere vektene.
             </p>
           </div>
@@ -938,64 +941,28 @@ export default function App() {
             {/* Triangle */}
             <polygon points={`${vA.x},${vA.y} ${vB.x},${vB.y} ${vC.x},${vC.y}`} fill="#f7fbff" stroke="#cfe3ff" strokeWidth="2" />
 
-            {/* Zelda-style grid lines - equilateral triangle subdivisions */}
-            {[1, 2, 3, 4].map((level, i) => {
-              const t = level / 5 // 0.2, 0.4, 0.6, 0.8
-              const lines = []
-              
-              // Lines parallel to each side
-              // Parallel to BC (bottom)
-              const p1 = { x: (1 - t) * vA.x + t * vB.x, y: (1 - t) * vA.y + t * vB.y }
-              const p2 = { x: (1 - t) * vA.x + t * vC.x, y: (1 - t) * vA.y + t * vC.y }
-              lines.push({ x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y })
-              
-              // Parallel to AC (right)
-              const p3 = { x: (1 - t) * vB.x + t * vA.x, y: (1 - t) * vB.y + t * vA.y }
-              const p4 = { x: (1 - t) * vB.x + t * vC.x, y: (1 - t) * vB.y + t * vC.y }
-              lines.push({ x1: p3.x, y1: p3.y, x2: p4.x, y2: p4.y })
-              
-              // Parallel to AB (left)
-              const p5 = { x: (1 - t) * vC.x + t * vA.x, y: (1 - t) * vC.y + t * vA.y }
-              const p6 = { x: (1 - t) * vC.x + t * vB.x, y: (1 - t) * vC.y + t * vB.y }
-              lines.push({ x1: p5.x, y1: p5.y, x2: p6.x, y2: p6.y })
-              
-              return (
-                <g key={i}>
-                  {lines.map((line, j) => (
-                    <line 
-                      key={j}
-                      x1={line.x1} y1={line.y1} 
-                      x2={line.x2} y2={line.y2} 
-                      stroke="#e0e8f0" 
-                      strokeWidth="1" 
-                      opacity="0.6"
-                    />
-                  ))}
-                </g>
-              )
-            })}
 
             {/* Labels */}
-            <text x={vA.x} y={vA.y - 12} textAnchor="middle" fontSize="18" style={{ zIndex: 10 }}>☀️</text>
-            <text x={vB.x - 8} y={vB.y + 20} textAnchor="end" fontSize="18" style={{ zIndex: 10 }}>🌡️</text>
-            <text x={vC.x + 8} y={vC.y + 20} textAnchor="start" fontSize="18" style={{ zIndex: 10 }}>💨</text>
+            <image x={vA.x - 9} y={vA.y - 21} width="18" height="18" href={sunIcon} style={{ filter: darkMode ? 'invert(1)' : 'none' }} />
+            <image x={vB.x - 17} y={vB.y + 11} width="18" height="18" href={temperatureIcon} style={{ filter: darkMode ? 'invert(1)' : 'none' }} />
+            <image x={vC.x + 1} y={vC.y + 11} width="18" height="18" href={windIcon} style={{ filter: darkMode ? 'invert(1)' : 'none' }} />
 
             {/* Selector */}
             <circle cx={selectorPos.x} cy={selectorPos.y} r="7" fill="#2d7ff9" stroke="white" strokeWidth="2" />
           </svg>
           <div style={{ minWidth: 140, fontSize: 12, color: darkMode ? '#fff' : '#34495e' }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2px' }}>
-              <span style={{ fontSize: '14px', marginRight: '6px' }}>☀️</span>
+              <img src={sunIcon} alt="Sol" style={{ width: '14px', height: '14px', marginRight: '6px', filter: darkMode ? 'invert(1)' : 'none' }} />
               <span style={{ minWidth: '30px', textAlign: 'right', marginRight: '6px' }}>{(solWeight * 100).toFixed(0)}%</span>
               <span>- Mest mulig solskinn</span>
           </div>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2px' }}>
-              <span style={{ fontSize: '14px', marginRight: '6px' }}>🌡️</span>
+              <img src={temperatureIcon} alt="Temperatur" style={{ width: '14px', height: '14px', marginRight: '6px', filter: darkMode ? 'invert(1)' : 'none' }} />
               <span style={{ minWidth: '30px', textAlign: 'right', marginRight: '6px' }}>{(tempWeight * 100).toFixed(0)}%</span>
               <span>- Temperatur nærmest mulig 25 grader</span>
           </div>
             <div style={{ display: 'flex', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', marginRight: '6px' }}>💨</span>
+              <img src={windIcon} alt="Vind" style={{ width: '14px', height: '14px', marginRight: '6px', filter: darkMode ? 'invert(1)' : 'none' }} />
               <span style={{ minWidth: '30px', textAlign: 'right', marginRight: '6px' }}>{(windWeight * 100).toFixed(0)}%</span>
               <span>- {darkMode ? 'Sterk vind (17 m/s optimal)' : 'Minst mulig vind'}</span>
           </div>
@@ -1393,7 +1360,7 @@ export default function App() {
             paddingBottom:'0.5rem',
             color: darkMode ? '#fff' : '#000'
           }}>
-            <div>Tid</div><div>Vær</div><div>Temp.</div><div>Nedbør mm</div><div>Vind (m/s, kast)</div><div>Vindbeskrivelse</div>
+            <div>Tid</div><div>Vær</div><div>Temp.<br/>°C</div><div>Nedbør<br/>mm</div><div>Vind<br/>m/s (kast)</div><div>Vindbeskrivelse</div>
           </div>
           {best.forecast.slice(0,24).map(f => {
             const time = new Date(f.time).toLocaleTimeString('no-NO',{hour:'2-digit',minute:'2-digit'})
@@ -1421,9 +1388,9 @@ export default function App() {
                 color: darkMode ? '#fff' : '#000'
               }}>
                 <div>{time}</div>
-                <div>{iconUrl ? <img src={iconUrl} alt={sym} style={{width:24,height:24}} /> : '❓'}</div>
-                <div>{det.air_temperature}°</div>
-                <div style={{color: darkMode ? '#4fc3f7' : '#007aff'}}>{precip}</div>
+                <div>{iconUrl ? <img src={iconUrl} alt={sym} style={{width:32,height:32}} /> : '❓'}</div>
+                <div style={{color: det.air_temperature > 0 ? '#ff4444' : '#4444ff'}}>{det.air_temperature}°</div>
+                <div style={{color: parseFloat(precip) > 0 ? (darkMode ? '#4fc3f7' : '#007aff') : (darkMode ? '#fff' : '#000')}}>{precip}</div>
                 <div>{`${speed}${gust ? ` (${gust})` : ''} ${arrow}`}</div>
                 <div style={{ textAlign:'left' }}>{desc}</div>
               </div>
