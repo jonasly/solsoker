@@ -14,16 +14,29 @@ const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeath
       return
     }
 
-    if (!mapInstanceRef.current) {
-      console.log('Initializing Leaflet map with center:', center)
-      const map = window.L.map(mapRef.current).setView([center.lat, center.lng], 10)
-      mapInstanceRef.current = map
-      
-      // Add OpenStreetMap tiles only once
-      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-      }).addTo(map)
-    }
+        if (!mapInstanceRef.current) {
+          console.log('Initializing Leaflet map with center:', center)
+          const map = window.L.map(mapRef.current).setView([center.lat, center.lng], 10)
+          mapInstanceRef.current = map
+          
+          // Add base layer (OpenStreetMap)
+          const osmLayer = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+          })
+          
+          // Add hillshade overlay (Esri World Hillshade)
+          const hillshadeLayer = window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles © Esri',
+            opacity: 0.4
+          })
+          
+          // Add default layers
+          osmLayer.addTo(map)
+          hillshadeLayer.addTo(map)
+          
+          // Store layers
+          mapInstanceRef.current.layers = { osmLayer, hillshadeLayer }
+        }
 
     return () => {
       if (mapInstanceRef.current) {
@@ -31,9 +44,10 @@ const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeath
         mapInstanceRef.current = null
       }
     }
-  }, [center.lat, center.lng]) // Only reinitialize if center coordinates change
+      }, [center.lat, center.lng]) // Only reinitialize if center coordinates change
 
-  // Update markers and circle without reinitializing map
+
+      // Update markers and circle without reinitializing map
   useEffect(() => {
     if (!mapInstanceRef.current) return
 
@@ -98,7 +112,7 @@ const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeath
             Score: ${(spot.score * 100).toFixed(1)}%<br>
             Temp: ${spot.temp.toFixed(1)}°C<br>
             Sky: ${(100 - spot.cloud).toFixed(0)}% clear<br>
-            Wind: ${spot.wind.toFixed(1)} m/s
+            Wind: ${spot.wind.toFixed(1)}${spot.gust ? ` (${spot.gust.toFixed(1)})` : ''} m/s
           </div>
         `)
         
@@ -119,9 +133,9 @@ const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeath
       }).addTo(map)
       circleRef.current = circle
     }
-  }, [bestLocation, userLocation, searchRadius, topWeatherSpots]) // Only update when these change
+      }, [bestLocation, userLocation, searchRadius, topWeatherSpots]) // Only update when these change
 
-  return <div ref={mapRef} style={{ width: '100%', height: '400px', borderRadius: 8 }} />
+      return <div ref={mapRef} style={{ width: '100%', height: '400px', borderRadius: 8 }} />
 }
 
 // Glob-import av alle SVG-ikoner i src/assets/symbols
@@ -229,6 +243,7 @@ export default function App() {
   
   // Dark mode state
   const [darkMode, setDarkMode] = useState(false)
+  const [showInfo, setShowInfo] = useState(false)
 
   // Vekt-prioriteringer for faktorer
   const [solWeight, setSolWeight] = useState(0.7)
@@ -387,8 +402,8 @@ export default function App() {
     const maxIterations = 4
     const initialGridSize = 5
     
-    let bestPoint = null
-    let bestScore = -Infinity
+      let bestPoint = null
+      let bestScore = -Infinity
     let allWeatherSpots = [] // Collect all weather spots for ranking
     let currentCenter = { lat: latitude, lng: longitude }
     let currentRadius = maxRadiusKm
@@ -433,7 +448,7 @@ export default function App() {
       for (const p of samples) {
         try {
           const data = await fetchJsonWithTimeout(
-          `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${p.lat}&lon=${p.lon}`,
+          `https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${p.lat}&lon=${p.lon}`,
             { headers: { 'User-Agent': 'solsoker/1.0' } },
             8000
         )
@@ -534,18 +549,18 @@ export default function App() {
 
       // Hent full forecast
     const fData = await fetchJsonWithTimeout(
-        `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${bestPoint.lat}&lon=${bestPoint.lon}`,
+        `https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${bestPoint.lat}&lon=${bestPoint.lon}`,
       { headers: { 'User-Agent': 'solsoker/1.0' } },
       8000
-    )
-    const forecast = fData.properties.timeseries
+      )
+      const forecast = fData.properties.timeseries
 
-    setBest({ ...bestPoint, name: placeName, forecast })
+      setBest({ ...bestPoint, name: placeName, forecast })
     
     // Update map state with best location
     setBestLocation({ lat: bestPoint.lat, lng: bestPoint.lon, name: placeName })
     
-    setLoading(false)
+      setLoading(false)
   }
 
   const handleManualLocation = async () => {
@@ -562,7 +577,6 @@ export default function App() {
       )
       const geoData = await geoRes.json()
       if (geoData.length === 0) {
-        setError('Fant ikke stedet: ' + manualLocation)
         setLoading(false)
         return
       }
@@ -712,7 +726,8 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div style={{ 
-        fontFamily: 'Segoe UI, sans-serif', 
+        fontFamily: "'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif",
+        fontWeight: 200,
         padding: '2rem', 
         maxWidth: 900, 
         margin: 'auto',
@@ -742,35 +757,157 @@ export default function App() {
         }
       `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <div></div> {/* Empty div for spacing */}
+        <button
+          onClick={() => setShowInfo(!showInfo)}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '24px',
+            color: darkMode ? '#fff' : '#2c3e50',
+            padding: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'transform 0.2s ease'
+          }}
+          title="Vis informasjon om appen"
+        >
+          {showInfo ? '▼' : '▶'}
+        </button>
+        
         <h1 style={{ textAlign: 'center', color: darkMode ? '#ff6b6b' : '#f4d03f', margin: 0 }}>
           {darkMode ? 'Stormsøker' : 'Solsøker'}
         </h1>
-      <button
-        onClick={() => setDarkMode(!darkMode)}
-        style={{
-          background: darkMode ? '#2c3e50' : '#2a2a2a',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '50%',
-          width: '40px',
-          height: '40px',
-          fontSize: '18px',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-          transition: 'all 0.3s ease'
-        }}
-        title={darkMode ? 'Switch to Solsøker' : 'Switch to Stormsøker'}
-      >
-        {darkMode ? '🌞' : '⛈️'}
-      </button>
+        
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          style={{
+            background: darkMode ? '#2c3e50' : '#2a2a2a',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '50%',
+            width: '40px',
+            height: '40px',
+            fontSize: '18px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            transition: 'all 0.3s ease'
+          }}
+          title={darkMode ? 'Switch to Solsøker' : 'Switch to Stormsøker'}
+        >
+          {darkMode ? '🌞' : '⛈️'}
+        </button>
       </div>
+      
+      {/* Info panel */}
+      {showInfo && (
+        <div style={{
+          background: darkMode ? '#2a2a2a' : '#f8f9fa',
+          border: darkMode ? '1px solid #444' : '1px solid #dee2e6',
+          borderRadius: 8,
+          padding: '1.5rem',
+          marginBottom: '1rem',
+          color: darkMode ? '#fff' : '#2c3e50'
+        }}>
+          <h3 style={{ marginTop: 0, color: darkMode ? '#fff' : '#2c3e50' }}>Hvordan fungerer appen?</h3>
+          
+          <div style={{ marginBottom: '1rem' }}>
+            <h4 style={{ color: darkMode ? '#fff' : '#2c3e50', marginBottom: '0.5rem' }}>1. Prioriter værfaktorer</h4>
+            <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.4' }}>
+              Bruk trekanten til å prioritere sol (☀️), temperatur (🌡️) og vind (💨). 
+              Dra den blå prikken for å justere vektene.
+            </p>
+          </div>
+          
+          <div style={{ marginBottom: '1rem' }}>
+            <h4 style={{ color: darkMode ? '#fff' : '#2c3e50', marginBottom: '0.5rem' }}>2. Sett din posisjon</h4>
+            <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.4' }}>
+              Skriv inn hvor du befinner deg, eller la appen bruke GPS-posisjonen din.
+            </p>
+          </div>
+          
+          <div style={{ marginBottom: '1rem' }}>
+            <h4 style={{ color: darkMode ? '#fff' : '#2c3e50', marginBottom: '0.5rem' }}>3. Juster søkeradius</h4>
+            <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.4' }}>
+              Bruk skyvebaren for å sette hvor langt du vil søke (5-100 km).
+            </p>
+          </div>
+          
+          <div style={{ marginBottom: '1rem' }}>
+            <h4 style={{ color: darkMode ? '#fff' : '#2c3e50', marginBottom: '0.5rem' }}>4. Søk etter beste vær</h4>
+            <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.4' }}>
+              Appen bruker en intelligent polar grid-søkealgoritme for å finne det beste været.
+            </p>
+          </div>
+          
+          <div>
+            <h4 style={{ color: darkMode ? '#fff' : '#2c3e50', marginBottom: '0.5rem' }}>Polar Grid-søkealgoritme</h4>
+            <p style={{ margin: '0 0 1rem 0', fontSize: '14px', lineHeight: '1.4' }}>
+              Algoritmen starter med 37 punkter i en sirkulær mønster og finner de beste områdene. 
+              Deretter fokuserer den søket på lovende områder med tettere grid.
+            </p>
+            
+            {/* Grid visualization */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              marginBottom: '1rem',
+              background: darkMode ? '#1a1a1a' : '#fff',
+              padding: '1rem',
+              borderRadius: 8,
+              border: darkMode ? '1px solid #444' : '1px solid #ddd'
+            }}>
+              <svg width="200" height="200" style={{ border: '1px solid #ccc', borderRadius: 4 }}>
+                {/* Circle boundary */}
+                <circle cx="100" cy="100" r="90" fill="#4caf50" fillOpacity="0.1" stroke="#4caf50" strokeWidth="2" />
+                
+                {/* Center point */}
+                <circle cx="100" cy="100" r="3" fill="#ff6b6b" />
+                
+                {/* Ring 1 - 6 points */}
+                {[0, 1, 2, 3, 4, 5].map(i => {
+                  const angle = (i / 6) * 2 * Math.PI
+                  const x = 100 + 30 * Math.cos(angle)
+                  const y = 100 + 30 * Math.sin(angle)
+                  return <circle key={i} cx={x} cy={y} r="2" fill="#4ecdc4" />
+                })}
+                
+                {/* Ring 2 - 12 points */}
+                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(i => {
+                  const angle = (i / 12) * 2 * Math.PI
+                  const x = 100 + 60 * Math.cos(angle)
+                  const y = 100 + 60 * Math.sin(angle)
+                  return <circle key={i} cx={x} cy={y} r="2" fill="#45b7d1" />
+                })}
+                
+                {/* Ring 3 - 18 points */}
+                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17].map(i => {
+                  const angle = (i / 18) * 2 * Math.PI
+                  const x = 100 + 80 * Math.cos(angle)
+                  const y = 100 + 80 * Math.sin(angle)
+                  return <circle key={i} cx={x} cy={y} r="2" fill="#96ceb4" />
+                })}
+                
+              </svg>
+            </div>
+            
+            <div style={{ fontSize: '12px', color: darkMode ? '#ccc' : '#666', lineHeight: '1.3' }}>
+              <p style={{ margin: '0 0 0.5rem 0' }}><strong>Iterasjon 1:</strong> 37 punkter (senter + 6 + 12 + 18)</p>
+              <p style={{ margin: '0 0 0.5rem 0' }}><strong>Iterasjon 2:</strong> 19 punkter rundt beste område</p>
+              <p style={{ margin: '0 0 0.5rem 0' }}><strong>Iterasjon 3:</strong> 7 punkter for finjustering</p>
+              <p style={{ margin: 0 }}><strong>Resultat:</strong> Topp 3 værplasser med score</p>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Sliders for vekter */}
       <fieldset style={{ 
-        border: darkMode ? '2px solid #444' : '2px solid #d4e6d4', 
+        border: darkMode ? '1px solid #444' : '1px solid #d4e6d4', 
         borderRadius: 8, 
         padding: '1rem', 
         marginBottom: '1rem', 
@@ -851,7 +988,7 @@ export default function App() {
               <span style={{ fontSize: '14px', marginRight: '6px' }}>☀️</span>
               <span style={{ minWidth: '30px', textAlign: 'right', marginRight: '6px' }}>{(solWeight * 100).toFixed(0)}%</span>
               <span>- Mest mulig solskinn</span>
-            </div>
+          </div>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2px' }}>
               <span style={{ fontSize: '14px', marginRight: '6px' }}>🌡️</span>
               <span style={{ minWidth: '30px', textAlign: 'right', marginRight: '6px' }}>{(tempWeight * 100).toFixed(0)}%</span>
@@ -890,7 +1027,7 @@ export default function App() {
           }}>Posisjon</div>
           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', alignItems: 'center', position: 'relative', minHeight: '60px' }}>
             <div style={{ position: 'relative' }} ref={suggestionsBoxRef}>
-              <input
+            <input
               type="text"
               placeholder="F.eks: Oslo, Bergen, Trondheim..."
               value={manualLocation}
@@ -906,7 +1043,9 @@ export default function App() {
                 border: '1px solid #ccc', 
                 borderRadius: 4, 
                 width: '250px',
-                fontSize: '1rem'
+                fontSize: '1rem',
+                fontFamily: "'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif",
+                fontWeight: 200
               }}
               />
               {(isSearchingPlaces || suggestions.length > 0) && (
@@ -923,7 +1062,7 @@ export default function App() {
                       backgroundColor: '#f8f9fa'
                     }}>
                       ↑↓ Naviger, Enter velg, Esc lukk
-                    </div>
+          </div>
                   )}
                   {suggestions.map((s, idx) => {
                     const addr = s.address || {}
@@ -1029,7 +1168,7 @@ export default function App() {
                     fontWeight: 'bold', 
                     color: darkMode ? '#fff' : '#2c3e50', 
                     marginBottom: '0.5rem' 
-                  }}>Beste vær</div>
+                  }}>Beste lokasjon</div>
                   <div style={{ 
                     fontSize: '0.9rem', 
                     color: darkMode ? '#ccc' : '#666' 
@@ -1049,15 +1188,15 @@ export default function App() {
           <div style={{ 
             marginBottom: '1rem', 
             padding: '1rem', 
-            backgroundColor: darkMode ? '#d3d3d3' : '#f8f9fa', 
-            border: '1px solid #dee2e6', 
+            backgroundColor: darkMode ? '#3a3a3a' : '#f8f9fa', 
+            border: darkMode ? '1px solid #444' : '1px solid #dee2e6', 
             borderRadius: 8,
             textAlign: 'center'
           }}>
             <label style={{ 
               display: 'block', 
               fontWeight: 'bold', 
-              color: '#2c3e50', 
+              color: darkMode ? '#fff' : '#2c3e50', 
               marginBottom: '0.5rem' 
             }}>
               Søkeradius: {searchRadius} km
@@ -1083,14 +1222,14 @@ export default function App() {
               display: 'flex', 
               justifyContent: 'space-between', 
               fontSize: '0.8rem', 
-              color: '#666',
+              color: darkMode ? '#fff' : '#666',
               marginTop: '0.25rem'
             }}>
               <span>5 km</span>
               <span>50 km</span>
               <span>100 km</span>
-            </div>
           </div>
+        </div>
           
           {/* Search button */}
           {showSearchButton && (
@@ -1111,7 +1250,8 @@ export default function App() {
                   padding: '0.75rem 2rem',
                   borderRadius: 6,
                   fontSize: '1.1rem',
-                  fontWeight: 'bold',
+                  fontFamily: "'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif",
+                  fontWeight: 200,
                   cursor: loading ? 'not-allowed' : 'pointer',
                   boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
                 }}
@@ -1150,12 +1290,12 @@ export default function App() {
                       animationDelay: '0.4s'
                     }}></div>
                   </div>
-                ) : 'Søk etter beste vær'}
-              </button>
-            </div>
-          )}
+                ) : 'Søk etter beste lokasjoner'}
+      </button>
+        </div>
+      )}
 
-          
+      
           {/* Leaflet map */}
           <div style={{ border: '1px solid #90caf9', borderRadius: 8, position: 'relative', overflow: 'hidden' }}>
             <LeafletMap 
@@ -1184,15 +1324,9 @@ export default function App() {
                 <div style={{ width: '10px', height: '10px', backgroundColor: '#2196f3', borderRadius: '50%', marginRight: '0.5rem' }}></div>
                 Din posisjon
               </div>
-              {bestLocation && (
-                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem' }}>
-                  <div style={{ width: '10px', height: '10px', backgroundColor: '#4caf50', borderRadius: '50%', marginRight: '0.5rem' }}></div>
-                  Beste vær
-                </div>
-              )}
               {topWeatherSpots && topWeatherSpots.length > 0 && (
                 <div style={{ borderTop: '1px solid #eee', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
-                  <div style={{ fontWeight: 'bold', marginBottom: '0.25rem', fontSize: '0.8rem' }}>Topp 3 vær:</div>
+                  <div style={{ fontWeight: 'bold', marginBottom: '0.25rem', fontSize: '0.8rem' }}>Topp 3 lokasjoner:</div>
                   {topWeatherSpots.map((spot, index) => {
                     const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1']
                     const color = colors[index] || '#666'
@@ -1255,7 +1389,7 @@ export default function App() {
             gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr 3fr', 
             textAlign:'left', 
             fontWeight:'bold', 
-            borderBottom: darkMode ? '2px solid #444' : '2px solid #ddd', 
+            borderBottom: darkMode ? '1px solid #444' : '1px solid #ddd', 
             paddingBottom:'0.5rem',
             color: darkMode ? '#fff' : '#000'
           }}>
@@ -1269,8 +1403,8 @@ export default function App() {
             const iconUrl = iconModules[`./assets/symbols/${sym}.svg`]
             const precip = nxt.precipitation_amount != null ? nxt.precipitation_amount.toFixed(1) : ''
             const speed = det.wind_speed.toFixed(0)
-            // Bruk detaljert vindkast hvis tilgjengelig
-            const gustF = det.wind_speed_of_gust != null ? det.wind_speed_of_gust.toFixed(0) : ''
+            // Get wind gust data from complete API
+            const gust = det.wind_speed_of_gust != null ? det.wind_speed_of_gust.toFixed(0) : ''
             const dirDeg = det.wind_from_direction
             const arrow = getWindArrow(dirDeg)
             const dirName = getWindDirName(dirDeg)
@@ -1290,7 +1424,7 @@ export default function App() {
                 <div>{iconUrl ? <img src={iconUrl} alt={sym} style={{width:24,height:24}} /> : '❓'}</div>
                 <div>{det.air_temperature}°</div>
                 <div style={{color: darkMode ? '#4fc3f7' : '#007aff'}}>{precip}</div>
-                <div>{`${speed}${gustF ? `, ${gustF}` : ''} ${arrow}`}</div>
+                <div>{`${speed}${gust ? ` (${gust})` : ''} ${arrow}`}</div>
                 <div style={{ textAlign:'left' }}>{desc}</div>
               </div>
             )
