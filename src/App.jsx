@@ -389,10 +389,7 @@ export default function App() {
     const wWind = windWeight / totalWLocal
       // Reverse-geocode brukerposisjon
       try {
-        const geoRes = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
-          { headers: { 'User-Agent': 'solsoker/1.0' } }
-        )
+        const geoRes = await fetch(`/api/geocode?type=reverse&lat=${latitude}&lon=${longitude}`)
         const geoData = await geoRes.json()
         const addr = geoData.address || {}
         const name = addr.city || addr.town || addr.village || addr.hamlet || geoData.display_name
@@ -452,10 +449,10 @@ export default function App() {
       for (const p of samples) {
         try {
           const data = await fetchJsonWithTimeout(
-          `https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${p.lat}&lon=${p.lon}`,
-            { headers: { 'User-Agent': 'solsoker/1.0' } },
-            8000
-        )
+            `/api/met?lat=${p.lat}&lon=${p.lon}`,
+            undefined,
+            10000
+          )
         const now = data.properties.timeseries[0].data.instant.details
         const sol = 1 - now.cloud_area_fraction/100
         const tempScore = 1 - Math.min(Math.abs(now.air_temperature - 25)/20,1)
@@ -521,10 +518,7 @@ export default function App() {
       const topSpotsWithNames = await Promise.all(
         sortedSpots.map(async (spot, index) => {
           try {
-            const geoRes = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?lat=${spot.lat}&lon=${spot.lon}&format=json`,
-              { headers: { 'User-Agent': 'solsoker/1.0' } }
-            )
+            const geoRes = await fetch(`/api/geocode?type=reverse&lat=${spot.lat}&lon=${spot.lon}`)
             const geoData = await geoRes.json()
             const addr = geoData.address || {}
             const name = addr.city || addr.town || addr.village || addr.hamlet || geoData.display_name || `Spot ${index + 1}`
@@ -541,10 +535,10 @@ export default function App() {
       let placeName;
       try {
       const geoData2 = await fetchJsonWithTimeout(
-          `https://nominatim.openstreetmap.org/reverse?lat=${bestPoint.lat}&lon=${bestPoint.lon}&format=json`,
-        { headers: { 'User-Agent': 'solsoker/1.0' } },
-        8000
-        )
+        `/api/geocode?type=reverse&lat=${bestPoint.lat}&lon=${bestPoint.lon}`,
+        undefined,
+        10000
+      )
         const addr2 = geoData2.address || {}
         placeName = addr2.city || addr2.town || addr2.village || addr2.hamlet || geoData2.display_name
       } catch {
@@ -553,10 +547,10 @@ export default function App() {
 
       // Hent full forecast
     const fData = await fetchJsonWithTimeout(
-        `https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${bestPoint.lat}&lon=${bestPoint.lon}`,
-      { headers: { 'User-Agent': 'solsoker/1.0' } },
-      8000
-      )
+      `/api/met?lat=${bestPoint.lat}&lon=${bestPoint.lon}`,
+      undefined,
+      10000
+    )
       const forecast = fData.properties.timeseries
 
       setBest({ ...bestPoint, name: placeName, forecast })
@@ -575,10 +569,7 @@ export default function App() {
     setBest(null)
     
     try {
-      const geoRes = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(manualLocation)}&format=json&limit=1`,
-        { headers: { 'User-Agent': 'solsoker/1.0' } }
-      )
+      const geoRes = await fetch(`/api/geocode?q=${encodeURIComponent(manualLocation)}&limit=1`)
       const geoData = await geoRes.json()
       if (geoData.length === 0) {
         setLoading(false)
@@ -613,9 +604,9 @@ export default function App() {
       try {
         setIsSearchingPlaces(true)
         const data = await fetchJsonWithTimeout(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(manualLocation)}&format=json&limit=5&addressdetails=1&countrycodes=no`,
-          { headers: { 'User-Agent': 'solsoker/1.0' } },
-          8000
+          `/api/geocode?q=${encodeURIComponent(manualLocation)}`,
+          undefined,
+          10000
         )
         if (!active) return
         setSuggestions(Array.isArray(data) ? data : [])
