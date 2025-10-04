@@ -15,9 +15,6 @@
 
 export default async function handler(req, res) {
   try {
-    // ============================================================================
-    // REQUEST VALIDATION
-    // ============================================================================
     // Extract latitude and longitude from query parameters
     const { lat, lon } = req.query
     if (!lat || !lon) {
@@ -25,9 +22,6 @@ export default async function handler(req, res) {
       return
     }
 
-    // ============================================================================
-    // MET.NO API REQUEST
-    // ============================================================================
     // Construct Met.no API URL with coordinates
     // Uses /complete endpoint for full weather data including gusts
     const url = `https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`
@@ -42,18 +36,12 @@ export default async function handler(req, res) {
       signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
     })
 
-    // ============================================================================
-    // ERROR HANDLING
-    // ============================================================================
     // Check if Met.no API returned an error
     if (!upstream.ok) {
       res.status(upstream.status).json({ error: `Upstream error ${upstream.status}` })
       return
     }
 
-    // ============================================================================
-    // RESPONSE PROCESSING
-    // ============================================================================
     // Parse JSON response from Met.no
     const data = await upstream.json()
     
@@ -63,9 +51,6 @@ export default async function handler(req, res) {
     res.status(200).json(data)
     
   } catch (err) {
-    // ============================================================================
-    // ERROR RESPONSE
-    // ============================================================================
     // Return 500 error with details for debugging
     res.status(500).json({ error: 'Proxy error', details: String(err) })
   }

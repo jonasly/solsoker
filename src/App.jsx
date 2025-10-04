@@ -277,9 +277,6 @@ class ErrorBoundary extends React.Component {
 // The main application component that manages all state and renders the UI
 // ============================================================================
 export default function App() {
-  // ============================================================================
-  // CORE APPLICATION STATE
-  // ============================================================================
   // Weather data and search results
   const [best, setBest] = useState(null)                    // Best weather location found
   const [userLocation, setUserLocation] = useState(null)    // User's current GPS location
@@ -308,28 +305,17 @@ export default function App() {
   const [hasLocation, setHasLocation] = useState(false)
   const [showSearchButton, setShowSearchButton] = useState(false)
   
-  // ============================================================================
-  // UI STATE AND THEME
-  // ============================================================================
   const [darkMode, setDarkMode] = useState(false)          // Dark/Light mode toggle
   const [showInfo, setShowInfo] = useState(false)         // Show/hide info panel
 
-  // ============================================================================
-  // WEATHER PRIORITIZATION SYSTEM
-  // ============================================================================
   // These weights (0-1) determine how much each weather factor influences
   // the search algorithm. They are controlled by the interactive triangle.
-  // ============================================================================
   const [solWeight, setSolWeight] = useState(1/3)         // Sun/cloud coverage priority (0-1)
   const [tempWeight, setTempWeight] = useState(1/3)       // Temperature priority (0-1) 
   const [windWeight, setWindWeight] = useState(1/3)       // Wind speed priority (0-1)
 
-  // ============================================================================
-  // TERNARY TRIANGLE CONTROL GEOMETRY
-  // ============================================================================
   // Interactive triangle for setting weather factor priorities
   // Users drag a dot within the triangle to set relative weights
-  // ============================================================================
   const TRI_W = 260                                        // Triangle SVG width in pixels
   const TRI_H = 230                                        // Triangle SVG height in pixels
   const centerX = TRI_W / 2                                // Horizontal center
@@ -341,12 +327,8 @@ export default function App() {
   const vB = { x: centerX - radius * Math.cos(Math.PI/6), y: centerY + radius * Math.sin(Math.PI/6) }  // 🌡️ Temperature (bottom-left)
   const vC = { x: centerX + radius * Math.cos(Math.PI/6), y: centerY + radius * Math.sin(Math.PI/6) }  // 💨 Wind (bottom-right)
 
-  // ============================================================================
-  // TRIANGLE CONTROL MATHEMATICS
-  // ============================================================================
   // Converts weight values (0-1) to pixel coordinates within the triangle
   // Uses barycentric coordinates for accurate positioning
-  // ============================================================================
   const weightsToPoint = (wA, wB, wC) => ({
     x: wA * vA.x + wB * vB.x + wC * vC.x,
     y: wA * vA.y + wB * vB.y + wC * vC.y
@@ -357,12 +339,8 @@ export default function App() {
   const dragRef = useRef(false)                            // Track if user is dragging
   const svgRef = useRef(null)                              // SVG element reference
 
-  // ============================================================================
-  // TRIANGLE GEOMETRY FUNCTIONS
-  // ============================================================================
   // Mathematical functions for triangle area calculation and barycentric coordinates
   // These ensure the draggable dot stays within triangle boundaries
-  // ============================================================================
   
   // Calculate triangle area using cross product formula
   function triArea(p, q, r) {
@@ -465,9 +443,6 @@ export default function App() {
     dragRef.current = false
   }
 
-  // ============================================================================
-  // WEATHER SEARCH ALGORITHM
-  // ============================================================================
   // This is the core function that finds the best weather location within
   // the specified radius using a polar grid search algorithm.
   // 
@@ -479,11 +454,7 @@ export default function App() {
   // 5. Score each location based on user's weather preferences
   // 6. Find the best location and top 3 alternatives
   // 7. Update map and display results
-  // ============================================================================
   const processLocation = async (latitude, longitude, locationName) => {
-    // ============================================================================
-    // WEIGHT NORMALIZATION
-    // ============================================================================
     // Ensure weights sum to 1.0 for proper scoring algorithm
     const totalWLocal = solWeight + tempWeight + windWeight
     if (totalWLocal === 0) {
@@ -512,9 +483,6 @@ export default function App() {
     
       let bestPoint = null
       let bestScore = -Infinity
-    // ============================================================================
-    // POLAR GRID SEARCH ALGORITHM
-    // ============================================================================
     // Advanced search algorithm that efficiently finds optimal weather locations
     // by sampling points in concentric circles around the user's location.
     // 
@@ -522,26 +490,17 @@ export default function App() {
     // - Better coverage of circular search area than square grid
     // - Fewer API calls while maintaining accuracy
     // - Iterative refinement focuses on promising areas
-    // ============================================================================
     let allWeatherSpots = []                              // Collect all evaluated points for ranking
     let currentCenter = { lat: latitude, lng: longitude }   // Current search center
     let currentRadius = maxRadiusKm                       // Current search radius
     
-    // ============================================================================
-    // ITERATIVE SEARCH LOOP
-    // ============================================================================
     // Multiple iterations with decreasing radius to refine search
     // Each iteration focuses on the most promising area from previous iteration
-    // ============================================================================
     for (let iteration = 0; iteration < maxIterations; iteration++) {
       const samples = []                                  // Sample points for current iteration
       
-      // ============================================================================
-      // POLAR GRID GENERATION
-      // ============================================================================
       // Create concentric rings of sample points around current center
       // Fewer rings in later iterations for focused search
-      // ============================================================================
       const numRings = Math.max(2, 4 - iteration)         // Decrease rings each iteration
       const pointsPerRing = [1, 6, 12, 18]               // Center + rings with increasing density
       
@@ -557,12 +516,8 @@ export default function App() {
           
           const angle = (i / pointsInRing) * 2 * Math.PI  // Angle in radians
           
-          // ============================================================================
-          // COORDINATE CONVERSION
-          // ============================================================================
           // Convert polar coordinates to lat/lng using proper Earth geometry
           // 111 km per degree latitude, adjusted for longitude at current latitude
-          // ============================================================================
           const lat = currentCenter.lat + (ringRadius / 111) * Math.cos(angle)
           const lon = currentCenter.lng + (ringRadius / (111 * Math.cos(currentCenter.lat * Math.PI / 180))) * Math.sin(angle)
           
@@ -589,31 +544,18 @@ export default function App() {
             undefined,
             10000
           )
-        // ============================================================================
-        // WEATHER DATA EXTRACTION AND SCORING
-        // ============================================================================
         // Extract current weather conditions from Met.no API response
         // and calculate scores for each weather factor based on user preferences
-        // ============================================================================
         const now = data.properties.timeseries[0].data.instant.details
         
-        // ============================================================================
-        // SUN/CLOUD COVERAGE SCORING
-        // ============================================================================
         // Score: 1.0 = completely clear, 0.0 = completely overcast
         // cloud_area_fraction is 0-100, so we invert it for sun preference
         const sol = 1 - now.cloud_area_fraction/100
         
-        // ============================================================================
-        // TEMPERATURE SCORING
-        // ============================================================================
         // Score: 1.0 = perfect temperature (25°C), 0.0 = 20° deviation
         // Penalty increases with distance from optimal 25°C
         const tempScore = 1 - Math.min(Math.abs(now.air_temperature - 25)/20,1)
         
-        // ============================================================================
-        // WIND SPEED SCORING
-        // ============================================================================
         // Different scoring based on app mode:
         // - Light Mode (Solsøker): Prefer low wind (0 m/s = 1.0 score)
         // - Dark Mode (Stormsøker): Prefer strong wind (17 m/s = 1.0 score)
@@ -621,9 +563,6 @@ export default function App() {
           ? 1 - Math.min(Math.abs(now.wind_speed - 17)/17, 1) // Storm mode: 17 m/s optimal
           : 1 - Math.min(now.wind_speed/15,1)                 // Normal mode: low wind preferred
         
-        // ============================================================================
-        // WEIGHTED TOTAL SCORE
-        // ============================================================================
         // Combine all weather factors using user's priority weights
         // Final score determines how "good" this location's weather is
         const score = wSol*sol + wTemp*tempScore + wWind*windScore
