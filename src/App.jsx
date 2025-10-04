@@ -1,46 +1,85 @@
+// ============================================================================
+// SOLSØKER - WEATHER OPTIMIZATION APP
+// ============================================================================
+// This React app helps users find the best weather conditions within a 
+// specified radius by analyzing sun, temperature, and wind factors.
+// 
+// Main Features:
+// - Interactive weather prioritization using a ternary triangle control
+// - Polar grid search algorithm for efficient weather location finding
+// - Interactive map with Leaflet.js showing search results
+// - Dark/Light mode toggle (Solsøker/Stormsøker)
+// - Real-time weather data from Met.no API
+// - Location search with Nominatim geocoding
+// ============================================================================
+
 import React, { useState, useEffect, useRef } from 'react'
+// Custom PNG icons for weather factors and UI elements
 import sunIcon from './assets/symbols/sun.png'
 import temperatureIcon from './assets/symbols/temperature.png'
 import windIcon from './assets/symbols/wind.png'
 import stormIcon from './assets/symbols/storm.png'
 
-// Leaflet map component with radius circle
+// ============================================================================
+// LEAFLET MAP COMPONENT
+// ============================================================================
+// Interactive map component using Leaflet.js that displays:
+// - User's current location (blue marker)
+// - Best weather location (green marker) 
+// - Top 3 weather spots (numbered markers)
+// - Search radius circle
+// - Terrain overlay with hillshade
+// ============================================================================
 const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeatherSpots }) => {
-  const mapRef = useRef(null)
-  const mapInstanceRef = useRef(null)
-  const markersRef = useRef([])
-  const circleRef = useRef(null)
-  const isDraggingRef = useRef(false)
+  // Refs for managing map state and preventing re-initialization
+  const mapRef = useRef(null)           // DOM element reference
+  const mapInstanceRef = useRef(null)    // Leaflet map instance
+  const markersRef = useRef([])          // Array of map markers
+  const circleRef = useRef(null)        // Search radius circle
+  const isDraggingRef = useRef(false)    // Track if user is dragging
 
-  // Initialize map only once
+  // ============================================================================
+  // MAP INITIALIZATION EFFECT
+  // ============================================================================
+  // Creates the Leaflet map instance only once to prevent re-initialization
+  // and preserve zoom/pan state during re-renders
+  // ============================================================================
   useEffect(() => {
+    // Safety checks: ensure DOM element, Leaflet library, and center coordinates exist
     if (!mapRef.current || !window.L || !center || !center.lat || !center.lng) {
       return
     }
 
-        if (!mapInstanceRef.current) {
-          console.log('Initializing Leaflet map with center:', center)
-          const map = window.L.map(mapRef.current).setView([center.lat, center.lng], 10)
-          mapInstanceRef.current = map
-          
-          // Add base layer (OpenStreetMap)
-          const osmLayer = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-          })
-          
-          // Add hillshade overlay (Esri World Hillshade)
-          const hillshadeLayer = window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', {
-            attribution: 'Tiles © Esri',
-            opacity: 0.4
-          })
-          
-          // Add default layers
-          osmLayer.addTo(map)
-          hillshadeLayer.addTo(map)
-          
-          // Store layers
-          mapInstanceRef.current.layers = { osmLayer, hillshadeLayer }
-        }
+    // Only initialize if map doesn't already exist
+    if (!mapInstanceRef.current) {
+      console.log('Initializing Leaflet map with center:', center)
+      
+      // Create Leaflet map instance with center coordinates and zoom level 10
+      const map = window.L.map(mapRef.current).setView([center.lat, center.lng], 10)
+      mapInstanceRef.current = map
+      
+      // ============================================================================
+      // MAP TILE LAYERS
+      // ============================================================================
+      // Base layer: OpenStreetMap tiles for street/terrain information
+      const osmLayer = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+      })
+      
+      // Overlay layer: Esri World Hillshade for terrain elevation visualization
+      // Opacity 0.4 makes it semi-transparent so base map shows through
+      const hillshadeLayer = window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles © Esri',
+        opacity: 0.4
+      })
+      
+      // Add both layers to the map
+      osmLayer.addTo(map)
+      hillshadeLayer.addTo(map)
+      
+      // Store layer references for potential future use (toggle, etc.)
+      mapInstanceRef.current.layers = { osmLayer, hillshadeLayer }
+    }
 
     return () => {
       if (mapInstanceRef.current) {
@@ -174,16 +213,29 @@ function getWindArrow(deg) {
   return arrows[Math.floor((deg + 22.5) / 45) % 8]
 }
 
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+// Helper functions used throughout the application for API calls and delays
+// ============================================================================
+
+// Simple delay function for rate limiting API calls
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
+// ============================================================================
+// API REQUEST WITH TIMEOUT
+// ============================================================================
+// Wrapper around fetch() that adds timeout functionality to prevent hanging
+// requests, especially important for mobile devices and slow networks
+// ============================================================================
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 8000) {
-  const controller = new AbortController()
-  const id = setTimeout(() => controller.abort(), timeoutMs)
+  const controller = new AbortController()                    // AbortController for timeout
+  const id = setTimeout(() => controller.abort(), timeoutMs)  // Set timeout timer
   try {
     const res = await fetch(url, { ...options, signal: controller.signal })
     return await res.json()
   } finally {
-    clearTimeout(id)
+    clearTimeout(id)                                          // Clean up timeout
   }
 }
 
@@ -219,74 +271,111 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// ============================================================================
+// MAIN APP COMPONENT
+// ============================================================================
+// The main application component that manages all state and renders the UI
+// ============================================================================
 export default function App() {
-  const [best, setBest] = useState(null)
-  const [userLocation, setUserLocation] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [manualLocation, setManualLocation] = useState('')
-  const [showManualInput, setShowManualInput] = useState(true)
-  const [suggestions, setSuggestions] = useState([])
-  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false)
-  const [hasSelectedSuggestion, setHasSelectedSuggestion] = useState(false)
-  const [selectedIndex, setSelectedIndex] = useState(-1)
-  const suggestionsBoxRef = useRef(null)
+  // ============================================================================
+  // CORE APPLICATION STATE
+  // ============================================================================
+  // Weather data and search results
+  const [best, setBest] = useState(null)                    // Best weather location found
+  const [userLocation, setUserLocation] = useState(null)    // User's current GPS location
+  const [loading, setLoading] = useState(false)            // Loading state for searches
+  const [error, setError] = useState(null)                 // Error messages to display
   
-  // State for map display
-  const [showMap, setShowMap] = useState(false)
-  const [mapCenter, setMapCenter] = useState({ lat: 0, lng: 0 })
-  const [bestLocation, setBestLocation] = useState(null)
-  const [topWeatherSpots, setTopWeatherSpots] = useState([])
+  // Manual location input and suggestions
+  const [manualLocation, setManualLocation] = useState('')  // User-typed location string
+  const [showManualInput, setShowManualInput] = useState(true) // Show/hide manual input
+  const [suggestions, setSuggestions] = useState([])         // Location search suggestions
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false) // Loading suggestions
+  const [hasSelectedSuggestion, setHasSelectedSuggestion] = useState(false) // Hide suggestions after selection
+  const [selectedIndex, setSelectedIndex] = useState(-1)     // Keyboard navigation index
+  const suggestionsBoxRef = useRef(null)                    // DOM ref for suggestions dropdown
   
-  // State for radius selection
-  const [searchRadius, setSearchRadius] = useState(10) // km
+  // Map display and visualization
+  const [showMap, setShowMap] = useState(false)             // Show/hide map component
+  const [mapCenter, setMapCenter] = useState({ lat: 0, lng: 0 }) // Map center coordinates
+  const [bestLocation, setBestLocation] = useState(null)   // Best weather location for map
+  const [topWeatherSpots, setTopWeatherSpots] = useState([]) // Top 3 weather locations
+  
+  // Search configuration
+  const [searchRadius, setSearchRadius] = useState(10)      // Search radius in kilometers
   
   // State for workflow
   const [hasLocation, setHasLocation] = useState(false)
   const [showSearchButton, setShowSearchButton] = useState(false)
   
-  // Dark mode state
-  const [darkMode, setDarkMode] = useState(false)
-  const [showInfo, setShowInfo] = useState(false)
+  // ============================================================================
+  // UI STATE AND THEME
+  // ============================================================================
+  const [darkMode, setDarkMode] = useState(false)          // Dark/Light mode toggle
+  const [showInfo, setShowInfo] = useState(false)         // Show/hide info panel
 
-  // Vekt-prioriteringer for faktorer
-  const [solWeight, setSolWeight] = useState(1/3)
-  const [tempWeight, setTempWeight] = useState(1/3)
-  const [windWeight, setWindWeight] = useState(1/3)
+  // ============================================================================
+  // WEATHER PRIORITIZATION SYSTEM
+  // ============================================================================
+  // These weights (0-1) determine how much each weather factor influences
+  // the search algorithm. They are controlled by the interactive triangle.
+  // ============================================================================
+  const [solWeight, setSolWeight] = useState(1/3)         // Sun/cloud coverage priority (0-1)
+  const [tempWeight, setTempWeight] = useState(1/3)       // Temperature priority (0-1) 
+  const [windWeight, setWindWeight] = useState(1/3)       // Wind speed priority (0-1)
 
-  // Ternary control position (in px within SVG)
-  const TRI_W = 260
-  const TRI_H = 230
-  const centerX = TRI_W / 2
-  const centerY = TRI_H / 2 + 20
-  const radius = 110
+  // ============================================================================
+  // TERNARY TRIANGLE CONTROL GEOMETRY
+  // ============================================================================
+  // Interactive triangle for setting weather factor priorities
+  // Users drag a dot within the triangle to set relative weights
+  // ============================================================================
+  const TRI_W = 260                                        // Triangle SVG width in pixels
+  const TRI_H = 230                                        // Triangle SVG height in pixels
+  const centerX = TRI_W / 2                                // Horizontal center
+  const centerY = TRI_H / 2 + 20                          // Vertical center (offset down)
+  const radius = 110                                       // Triangle radius from center
   
-  // Regular equilateral triangle with equal sides
-  const vA = { x: centerX, y: centerY - radius }                    // ☀️ Sol (top)
-  const vB = { x: centerX - radius * Math.cos(Math.PI/6), y: centerY + radius * Math.sin(Math.PI/6) }  // 🌡️ Temp (bottom-left)
-  const vC = { x: centerX + radius * Math.cos(Math.PI/6), y: centerY + radius * Math.sin(Math.PI/6) }  // 💨 Vind (bottom-right)
+  // Equilateral triangle vertices (calculated mathematically)
+  const vA = { x: centerX, y: centerY - radius }                    // ☀️ Sun (top vertex)
+  const vB = { x: centerX - radius * Math.cos(Math.PI/6), y: centerY + radius * Math.sin(Math.PI/6) }  // 🌡️ Temperature (bottom-left)
+  const vC = { x: centerX + radius * Math.cos(Math.PI/6), y: centerY + radius * Math.sin(Math.PI/6) }  // 💨 Wind (bottom-right)
 
+  // ============================================================================
+  // TRIANGLE CONTROL MATHEMATICS
+  // ============================================================================
+  // Converts weight values (0-1) to pixel coordinates within the triangle
+  // Uses barycentric coordinates for accurate positioning
+  // ============================================================================
   const weightsToPoint = (wA, wB, wC) => ({
     x: wA * vA.x + wB * vB.x + wC * vC.x,
     y: wA * vA.y + wB * vB.y + wC * vC.y
   })
 
-  // initial point from weights
+  // Initialize selector position based on current weights (starts in center)
   const [selectorPos, setSelectorPos] = useState(() => weightsToPoint(solWeight, tempWeight, windWeight))
-  const dragRef = useRef(false)
-  const svgRef = useRef(null)
+  const dragRef = useRef(false)                            // Track if user is dragging
+  const svgRef = useRef(null)                              // SVG element reference
 
-  // Remove automatic sync to prevent unwanted dot movement
-
+  // ============================================================================
+  // TRIANGLE GEOMETRY FUNCTIONS
+  // ============================================================================
+  // Mathematical functions for triangle area calculation and barycentric coordinates
+  // These ensure the draggable dot stays within triangle boundaries
+  // ============================================================================
+  
+  // Calculate triangle area using cross product formula
   function triArea(p, q, r) {
     return ((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)) / 2
   }
 
+  // Convert pixel coordinates to barycentric coordinates (weights within triangle)
+  // Returns {wA, wB, wC} where each weight represents distance to opposite vertex
   function barycentric(p) {
-    const areaTotal = triArea(vA, vB, vC)
-    const wA = triArea(p, vB, vC) / areaTotal
-    const wB = triArea(vA, p, vC) / areaTotal
-    const wC = triArea(vA, vB, p) / areaTotal
+    const areaTotal = triArea(vA, vB, vC)                   // Total triangle area
+    const wA = triArea(p, vB, vC) / areaTotal              // Weight toward vertex A (Sun)
+    const wB = triArea(vA, p, vC) / areaTotal               // Weight toward vertex B (Temperature)
+    const wC = triArea(vA, vB, p) / areaTotal              // Weight toward vertex C (Wind)
     return { wA, wB, wC }
   }
 
@@ -376,17 +465,35 @@ export default function App() {
     dragRef.current = false
   }
 
+  // ============================================================================
+  // WEATHER SEARCH ALGORITHM
+  // ============================================================================
+  // This is the core function that finds the best weather location within
+  // the specified radius using a polar grid search algorithm.
+  // 
+  // Algorithm Steps:
+  // 1. Normalize user's weather factor weights
+  // 2. Get user's location name via reverse geocoding
+  // 3. Generate polar grid of sample points around user
+  // 4. Fetch weather data for each sample point from Met.no API
+  // 5. Score each location based on user's weather preferences
+  // 6. Find the best location and top 3 alternatives
+  // 7. Update map and display results
+  // ============================================================================
   const processLocation = async (latitude, longitude, locationName) => {
-    // Beregn vekter lokalt slik at de er tilgjengelige her
+    // ============================================================================
+    // WEIGHT NORMALIZATION
+    // ============================================================================
+    // Ensure weights sum to 1.0 for proper scoring algorithm
     const totalWLocal = solWeight + tempWeight + windWeight
     if (totalWLocal === 0) {
       setError('Vennligst sett minst én vekt > 0')
       setLoading(false)
       return
     }
-    const wSol = solWeight / totalWLocal
-    const wTemp = tempWeight / totalWLocal
-    const wWind = windWeight / totalWLocal
+    const wSol = solWeight / totalWLocal      // Normalized sun weight (0-1)
+    const wTemp = tempWeight / totalWLocal    // Normalized temperature weight (0-1)
+    const wWind = windWeight / totalWLocal    // Normalized wind weight (0-1)
       // Reverse-geocode brukerposisjon
       try {
         const geoRes = await fetch(`/api/geocode?type=reverse&lat=${latitude}&lon=${longitude}`)
@@ -405,28 +512,57 @@ export default function App() {
     
       let bestPoint = null
       let bestScore = -Infinity
-    let allWeatherSpots = [] // Collect all weather spots for ranking
-    let currentCenter = { lat: latitude, lng: longitude }
-    let currentRadius = maxRadiusKm
+    // ============================================================================
+    // POLAR GRID SEARCH ALGORITHM
+    // ============================================================================
+    // Advanced search algorithm that efficiently finds optimal weather locations
+    // by sampling points in concentric circles around the user's location.
+    // 
+    // Why Polar Grid?
+    // - Better coverage of circular search area than square grid
+    // - Fewer API calls while maintaining accuracy
+    // - Iterative refinement focuses on promising areas
+    // ============================================================================
+    let allWeatherSpots = []                              // Collect all evaluated points for ranking
+    let currentCenter = { lat: latitude, lng: longitude }   // Current search center
+    let currentRadius = maxRadiusKm                       // Current search radius
     
+    // ============================================================================
+    // ITERATIVE SEARCH LOOP
+    // ============================================================================
+    // Multiple iterations with decreasing radius to refine search
+    // Each iteration focuses on the most promising area from previous iteration
+    // ============================================================================
     for (let iteration = 0; iteration < maxIterations; iteration++) {
-      const samples = []
+      const samples = []                                  // Sample points for current iteration
       
-      // Create polar grid - much better coverage of circle
-      const numRings = Math.max(2, 4 - iteration) // Fewer rings each iteration
-      const pointsPerRing = [1, 6, 12, 18] // Center + rings with increasing density
+      // ============================================================================
+      // POLAR GRID GENERATION
+      // ============================================================================
+      // Create concentric rings of sample points around current center
+      // Fewer rings in later iterations for focused search
+      // ============================================================================
+      const numRings = Math.max(2, 4 - iteration)         // Decrease rings each iteration
+      const pointsPerRing = [1, 6, 12, 18]               // Center + rings with increasing density
       
+      // Generate sample points in concentric circles
       for (let ring = 0; ring < numRings; ring++) {
-        const ringRadius = (ring / (numRings - 1)) * currentRadius
-        const pointsInRing = pointsPerRing[ring]
+        const ringRadius = (ring / (numRings - 1)) * currentRadius  // Distance from center
+        const pointsInRing = pointsPerRing[ring]                   // Number of points in this ring
         
+        // Place points evenly around the ring
         for (let i = 0; i < pointsInRing; i++) {
-          // Skip center point after first iteration
+          // Skip center point after first iteration (already evaluated)
           if (ring === 0 && iteration > 0) continue
           
-          const angle = (i / pointsInRing) * 2 * Math.PI
+          const angle = (i / pointsInRing) * 2 * Math.PI  // Angle in radians
           
-          // Convert to lat/lng using proper distance calculation
+          // ============================================================================
+          // COORDINATE CONVERSION
+          // ============================================================================
+          // Convert polar coordinates to lat/lng using proper Earth geometry
+          // 111 km per degree latitude, adjusted for longitude at current latitude
+          // ============================================================================
           const lat = currentCenter.lat + (ringRadius / 111) * Math.cos(angle)
           const lon = currentCenter.lng + (ringRadius / (111 * Math.cos(currentCenter.lat * Math.PI / 180))) * Math.sin(angle)
           
@@ -453,12 +589,43 @@ export default function App() {
             undefined,
             10000
           )
+        // ============================================================================
+        // WEATHER DATA EXTRACTION AND SCORING
+        // ============================================================================
+        // Extract current weather conditions from Met.no API response
+        // and calculate scores for each weather factor based on user preferences
+        // ============================================================================
         const now = data.properties.timeseries[0].data.instant.details
+        
+        // ============================================================================
+        // SUN/CLOUD COVERAGE SCORING
+        // ============================================================================
+        // Score: 1.0 = completely clear, 0.0 = completely overcast
+        // cloud_area_fraction is 0-100, so we invert it for sun preference
         const sol = 1 - now.cloud_area_fraction/100
+        
+        // ============================================================================
+        // TEMPERATURE SCORING
+        // ============================================================================
+        // Score: 1.0 = perfect temperature (25°C), 0.0 = 20° deviation
+        // Penalty increases with distance from optimal 25°C
         const tempScore = 1 - Math.min(Math.abs(now.air_temperature - 25)/20,1)
+        
+        // ============================================================================
+        // WIND SPEED SCORING
+        // ============================================================================
+        // Different scoring based on app mode:
+        // - Light Mode (Solsøker): Prefer low wind (0 m/s = 1.0 score)
+        // - Dark Mode (Stormsøker): Prefer strong wind (17 m/s = 1.0 score)
         const windScore = darkMode 
           ? 1 - Math.min(Math.abs(now.wind_speed - 17)/17, 1) // Storm mode: 17 m/s optimal
-          : 1 - Math.min(now.wind_speed/15,1) // Normal mode: low wind preferred
+          : 1 - Math.min(now.wind_speed/15,1)                 // Normal mode: low wind preferred
+        
+        // ============================================================================
+        // WEIGHTED TOTAL SCORE
+        // ============================================================================
+        // Combine all weather factors using user's priority weights
+        // Final score determines how "good" this location's weather is
         const score = wSol*sol + wTemp*tempScore + wWind*windScore
         
         // Collect all weather spots for ranking
