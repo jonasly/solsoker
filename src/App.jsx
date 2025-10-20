@@ -30,12 +30,13 @@ import stormIcon from './assets/symbols/storm.png'
 // - Search radius circle
 // - Terrain overlay with hillshade
 // ============================================================================
-const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeatherSpots }) => {
+const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeatherSpots, searchProgress }) => {
   // Refs for managing map state and preventing re-initialization
   const mapRef = useRef(null)           // DOM element reference
   const mapInstanceRef = useRef(null)    // Leaflet map instance
   const markersRef = useRef([])          // Array of map markers
   const circleRef = useRef(null)        // Search radius circle
+  const progressMarkersRef = useRef([]) // Array of search progress markers
   const isDraggingRef = useRef(false)    // Track if user is dragging
 
   // ============================================================================
@@ -59,26 +60,25 @@ const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeath
       mapInstanceRef.current = map
       
       // ============================================================================
-      // MAP TILE LAYERS
-      // ============================================================================
-      // Base layer: OpenStreetMap tiles for street/terrain information
+      // MAP TILE LAYERS: Base OSM + Kartverket hillshade overlay
       const osmLayer = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors'
       })
-      
-      // Overlay layer: Esri World Hillshade for terrain elevation visualization
-      // Opacity 0.4 makes it semi-transparent so base map shows through
-      const hillshadeLayer = window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles © Esri',
-        opacity: 0.4
+
+      // Overlay: Fjellskygge (hillshade)
+      const fjellskyggeLayer = window.L.tileLayer.wms('https://wms.geonorge.no/skwms1/wms.fjellskygge?', {
+        layers: 'fjellskygge',
+        format: 'image/png',
+        transparent: true
       })
+      fjellskyggeLayer.setOpacity(0.4)
       
-      // Add both layers to the map
+      // Add layers to map
       osmLayer.addTo(map)
-      hillshadeLayer.addTo(map)
+      fjellskyggeLayer.addTo(map)
       
-      // Store layer references for potential future use (toggle, etc.)
-      mapInstanceRef.current.layers = { osmLayer, hillshadeLayer }
+      // Store references
+      mapInstanceRef.current.layers = { osmLayer, fjellskyggeLayer }
     }
 
     return () => {
@@ -99,6 +99,8 @@ const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeath
     // Clear existing markers and circle
     markersRef.current.forEach(marker => map.removeLayer(marker))
     markersRef.current = []
+    progressMarkersRef.current.forEach(marker => map.removeLayer(marker))
+    progressMarkersRef.current = []
     if (circleRef.current) {
       map.removeLayer(circleRef.current)
       circleRef.current = null
@@ -163,6 +165,29 @@ const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeath
       })
     }
 
+    // Add search progress markers (grey dots with animation)
+    if (searchProgress && searchProgress.length > 0) {
+      searchProgress.forEach((point, index) => {
+        const marker = window.L.marker([point.lat, point.lon], {
+          icon: window.L.divIcon({
+            className: 'search-progress-marker',
+            html: `<div style="
+              background-color: #666; 
+              width: 10px; 
+              height: 10px; 
+              border-radius: 50%; 
+              border: 2px solid white; 
+              box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+              animation: searchPulse 2.5s ease-in-out infinite;
+            "></div>`,
+            iconSize: [14, 14],
+            iconAnchor: [7, 7]
+          })
+        }).addTo(map)
+        progressMarkersRef.current.push(marker)
+      })
+    }
+
     // Add search radius circle
     if (searchRadius > 0) {
       console.log('Adding search radius circle:', { searchRadius, center })
@@ -176,7 +201,7 @@ const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeath
       }).addTo(map)
       circleRef.current = circle
     }
-      }, [bestLocation, userLocation, searchRadius, topWeatherSpots]) // Only update when these change
+      }, [bestLocation, userLocation, searchRadius, topWeatherSpots, searchProgress]) // Only update when these change
 
       return <div ref={mapRef} style={{ width: '100%', height: '400px', borderRadius: 8 }} />
 }
@@ -297,6 +322,7 @@ export default function App() {
   const [mapCenter, setMapCenter] = useState({ lat: 0, lng: 0 }) // Map center coordinates
   const [bestLocation, setBestLocation] = useState(null)   // Best weather location for map
   const [topWeatherSpots, setTopWeatherSpots] = useState([]) // Top 3 weather locations
+  const [searchProgress, setSearchProgress] = useState([])   // Search progress dots
   
   // Search configuration
   const [searchRadius, setSearchRadius] = useState(10)      // Search radius in kilometers
@@ -476,144 +502,128 @@ export default function App() {
       setUserLocation({ lat: latitude, lon: longitude, name: locationName || `${latitude.toFixed(5)},${longitude.toFixed(5)}` })
     }
 
-    // Adaptive grid search for optimal weather location
+    // Single-pass polar grid search for optimal weather location
     const maxRadiusKm = searchRadius
-    const maxIterations = 4
-    const initialGridSize = 5
     
       let bestPoint = null
       let bestScore = -Infinity
-    // Advanced search algorithm that efficiently finds optimal weather locations
-    // by sampling points in concentric circles around the user's location.
-    // 
-    // Why Polar Grid?
-    // - Better coverage of circular search area than square grid
-    // - Fewer API calls while maintaining accuracy
-    // - Iterative refinement focuses on promising areas
+    // Generate one richer grid of sample points (5 rings, 81 points total)
+    // Rings: [1, 8, 16, 24, 32]
     let allWeatherSpots = []                              // Collect all evaluated points for ranking
-    let currentCenter = { lat: latitude, lng: longitude }   // Current search center
-    let currentRadius = maxRadiusKm                       // Current search radius
+    const currentCenter = { lat: latitude, lng: longitude }
+    const numRings = 5
+    const pointsPerRing = [1, 8, 16, 24, 32]
+    const samples = []
     
-    // Multiple iterations with decreasing radius to refine search
-    // Each iteration focuses on the most promising area from previous iteration
-    for (let iteration = 0; iteration < maxIterations; iteration++) {
-      const samples = []                                  // Sample points for current iteration
+    // Clear previous search progress
+    setSearchProgress([])
+    
+    // Generate points with proper ring-by-ring distribution
+    for (let ring = 0; ring < numRings; ring++) {
+      const ringRadius = (ring / (numRings - 1)) * maxRadiusKm
+      const pointsInRing = pointsPerRing[ring]
       
-      // Create concentric rings of sample points around current center
-      // Fewer rings in later iterations for focused search
-      const numRings = Math.max(2, 4 - iteration)         // Decrease rings each iteration
-      const pointsPerRing = [1, 6, 12, 18]               // Center + rings with increasing density
-      
-      // Generate sample points in concentric circles
-      for (let ring = 0; ring < numRings; ring++) {
-        const ringRadius = (ring / (numRings - 1)) * currentRadius  // Distance from center
-        const pointsInRing = pointsPerRing[ring]                   // Number of points in this ring
+      for (let i = 0; i < pointsInRing; i++) {
+        // Evenly distribute points within each ring
+        const angle = (i / pointsInRing) * 2 * Math.PI
         
-        // Place points evenly around the ring
-        for (let i = 0; i < pointsInRing; i++) {
-          // Skip center point after first iteration (already evaluated)
-          if (ring === 0 && iteration > 0) continue
-          
-          const angle = (i / pointsInRing) * 2 * Math.PI  // Angle in radians
-          
-          // Convert polar coordinates to lat/lng using proper Earth geometry
-          // 111 km per degree latitude, adjusted for longitude at current latitude
-          const lat = currentCenter.lat + (ringRadius / 111) * Math.cos(angle)
-          const lon = currentCenter.lng + (ringRadius / (111 * Math.cos(currentCenter.lat * Math.PI / 180))) * Math.sin(angle)
-          
-          // Only include points within max radius
-          const distFromOrigin = Math.sqrt(
-            Math.pow((lat - latitude) * 111000, 2) + 
-            Math.pow((lon - longitude) * 111000 * Math.cos(latitude * Math.PI / 180), 2)
-          ) / 1000
-          
-          if (distFromOrigin <= maxRadiusKm) {
-            samples.push({ lat, lon })
-          }
-        }
+        // Convert to lat/lng with proper Earth geometry accounting for Web Mercator projection
+        // At high latitudes, we need to adjust for the projection distortion
+        const latRadius = ringRadius / 111.32 // More precise Earth circumference factor
+        const lonRadius = ringRadius / (111.32 * Math.cos(currentCenter.lat * Math.PI / 180))
+        
+        const lat = currentCenter.lat + latRadius * Math.sin(angle)
+        const lon = currentCenter.lng + lonRadius * Math.cos(angle)
+        
+        // Add all calculated points (no distance filtering needed)
+        samples.push({ lat, lon, ring, index: i })
       }
+    }
+    
+    // Evaluate points in parallel batches for much better performance
+    const BATCH_SIZE = 10 // Process 10 points at a time to respect API rate limits
+    
+    for (let batchStart = 0; batchStart < samples.length; batchStart += BATCH_SIZE) {
+      const batch = samples.slice(batchStart, batchStart + BATCH_SIZE)
       
-      // Evaluate all points in current grid
-      let iterationBest = null
-      let iterationBestScore = -Infinity
-      
-      for (const p of samples) {
-        try {
+      // Process batch in parallel
+      const batchResults = await Promise.allSettled(
+        batch.map(async (p) => {
+          // Add this point to search progress (grey dot)
+          setSearchProgress(prev => [...prev, { lat: p.lat, lon: p.lon, id: `${p.ring}-${p.index}` }])
+          
           const data = await fetchJsonWithTimeout(
             `/api/met?lat=${p.lat}&lon=${p.lon}`,
             undefined,
             10000
           )
-        // Extract current weather conditions from Met.no API response
-        // and calculate scores for each weather factor based on user preferences
-        const now = data.properties.timeseries[0].data.instant.details
-        
-        // Score: 1.0 = completely clear, 0.0 = completely overcast
-        // cloud_area_fraction is 0-100, so we invert it for sun preference
-        const sol = 1 - now.cloud_area_fraction/100
-        
-        // Score: 1.0 = perfect temperature (25°C), 0.0 = 20° deviation
-        // Penalty increases with distance from optimal 25°C
-        const tempScore = 1 - Math.min(Math.abs(now.air_temperature - 25)/20,1)
-        
-        // Different scoring based on app mode:
-        // - Light Mode (Solsøker): Prefer low wind (0 m/s = 1.0 score)
-        // - Dark Mode (Stormsøker): Prefer strong wind (17 m/s = 1.0 score)
-        const windScore = darkMode 
-          ? 1 - Math.min(Math.abs(now.wind_speed - 17)/17, 1) // Storm mode: 17 m/s optimal
-          : 1 - Math.min(now.wind_speed/15,1)                 // Normal mode: low wind preferred
-        
-        // Combine all weather factors using user's priority weights
-        // Final score determines how "good" this location's weather is
-        const score = wSol*sol + wTemp*tempScore + wWind*windScore
-        
-        // Collect all weather spots for ranking
-        allWeatherSpots.push({
-          lat: p.lat,
-          lon: p.lon,
-          temp: now.air_temperature,
-          cloud: now.cloud_area_fraction,
-          wind: now.wind_speed,
-          gust: now.wind_speed_of_gust ?? null,
-          symbolCode: data.properties.timeseries[0].data.next_1_hours?.summary?.symbol_code || '',
-          score: score
-        })
           
-          if (score > iterationBestScore) {
-            iterationBestScore = score
-            iterationBest = {
+          // Extract 24-hour weather forecast and calculate average scores
+          const forecast24h = data.properties.timeseries.slice(0, 24)
+          
+          // Calculate average weather conditions over 24 hours
+          let totalSol = 0, totalTemp = 0, totalWind = 0
+          let validEntries = 0
+          
+          forecast24h.forEach(entry => {
+            if (entry.data.instant && entry.data.instant.details) {
+              const details = entry.data.instant.details
+              totalSol += (1 - details.cloud_area_fraction/100)
+              totalTemp += details.air_temperature
+              totalWind += details.wind_speed
+              validEntries++
+            }
+          })
+          
+          if (validEntries === 0) {
+            throw new Error('No valid forecast data')
+          }
+          
+          // Calculate 24-hour averages
+          const avgSol = totalSol / validEntries
+          const avgTemp = totalTemp / validEntries
+          const avgWind = totalWind / validEntries
+          
+          // Calculate scores
+          const sol = avgSol
+          const tempScore = 1 - Math.min(Math.abs(avgTemp - 25)/20, 1)
+          const windScore = darkMode 
+            ? 1 - Math.min(Math.abs(avgWind - 17)/17, 1)
+            : 1 - Math.min(avgWind/15, 1)
+          
+          const score = wSol*sol + wTemp*tempScore + wWind*windScore
+          
+          return {
             lat: p.lat,
             lon: p.lon,
-            temp: now.air_temperature,
-            cloud: now.cloud_area_fraction,
-            wind: now.wind_speed,
-            gust: now.wind_speed_of_gust ?? null,
-            symbolCode: data.properties.timeseries[0].data.next_1_hours?.summary?.symbol_code || ''
+            temp: avgTemp,
+            cloud: (1 - avgSol) * 100,
+            wind: avgWind,
+            gust: null,
+            symbolCode: data.properties.timeseries[0].data.next_1_hours?.summary?.symbol_code || '',
+            score: score
           }
-        }
+        })
+      )
+      
+      // Process results from this batch
+      batchResults.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          const weatherSpot = result.value
+          allWeatherSpots.push(weatherSpot)
           
-          await sleep(200) // Reduced for faster search
-        } catch (err) {
-          console.warn('Weather fetch failed for point:', p, err)
+          if (weatherSpot.score > bestScore) {
+            bestScore = weatherSpot.score
+            bestPoint = weatherSpot
+          }
+        } else {
+          console.warn('Weather fetch failed for point:', result.reason)
         }
-      }
+      })
       
-      // Update global best if this iteration found something better
-      if (iterationBest && iterationBestScore > bestScore) {
-        bestScore = iterationBestScore
-        bestPoint = iterationBest
-        
-        // Move search center to best point and reduce radius
-        currentCenter = { lat: iterationBest.lat, lng: iterationBest.lon }
-        currentRadius = Math.max(2, currentRadius * 0.6) // Reduce radius by 40% each iteration
-      } else {
-        // No improvement found, reduce radius and try again
-        currentRadius = Math.max(1, currentRadius * 0.7)
-      }
-      
-      // Early termination if radius becomes too small
-      if (currentRadius < 1.5) break
-      }
+      // Small delay between batches to respect rate limits
+      await sleep(50)
+    }
 
       // Get top 3 weather spots
       const sortedSpots = allWeatherSpots
@@ -636,6 +646,9 @@ export default function App() {
       )
       
       setTopWeatherSpots(topSpotsWithNames)
+
+      // Clear search progress dots when search is complete
+      setSearchProgress([])
 
       // Hent stedsnavn for beste punkt
       let placeName;
@@ -856,6 +869,14 @@ export default function App() {
             transform: translateY(-8px);
           }
         }
+        @keyframes searchPulse {
+          0%, 100% {
+            opacity: 0.3;
+          }
+          50% {
+            opacity: 0.9;
+          }
+        }
       `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <button
@@ -951,8 +972,7 @@ export default function App() {
           <div>
             <h4 style={{ color: darkMode ? '#fff' : '#2c3e50', marginBottom: '0.5rem' }}>Polar Grid-søkealgoritme</h4>
             <p style={{ margin: '0 0 1rem 0', fontSize: '14px', lineHeight: '1.4' }}>
-              Algoritmen starter med 37 punkter i en sirkulær mønster og finner de beste områdene. 
-              Deretter fokuserer den søket på lovende områder med tettere grid.
+              Algoritmen gjør ett søk med 81 punkter fordelt på 5 ringer (1, 8, 16, 24, 32) innenfor valgt radius og velger topp 3 basert på dine vekter.
             </p>
             
             {/* Grid visualization */}
@@ -972,37 +992,43 @@ export default function App() {
                 {/* Center point */}
                 <circle cx="100" cy="100" r="3" fill="#ff6b6b" />
                 
-                {/* Ring 1 - 6 points */}
-                {[0, 1, 2, 3, 4, 5].map(i => {
-                  const angle = (i / 6) * 2 * Math.PI
-                  const x = 100 + 30 * Math.cos(angle)
-                  const y = 100 + 30 * Math.sin(angle)
+                {/* Ring 1 - 8 points */}
+                {[...Array(8).keys()].map(i => {
+                  const angle = (i / 8) * 2 * Math.PI
+                  const x = 100 + 25 * Math.cos(angle)
+                  const y = 100 + 25 * Math.sin(angle)
                   return <circle key={i} cx={x} cy={y} r="2" fill="#4ecdc4" />
                 })}
                 
-                {/* Ring 2 - 12 points */}
-                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(i => {
-                  const angle = (i / 12) * 2 * Math.PI
-                  const x = 100 + 60 * Math.cos(angle)
-                  const y = 100 + 60 * Math.sin(angle)
+                {/* Ring 2 - 16 points */}
+                {[...Array(16).keys()].map(i => {
+                  const angle = (i / 16) * 2 * Math.PI
+                  const x = 100 + 50 * Math.cos(angle)
+                  const y = 100 + 50 * Math.sin(angle)
                   return <circle key={i} cx={x} cy={y} r="2" fill="#45b7d1" />
                 })}
                 
-                {/* Ring 3 - 18 points */}
-                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17].map(i => {
-                  const angle = (i / 18) * 2 * Math.PI
-                  const x = 100 + 80 * Math.cos(angle)
-                  const y = 100 + 80 * Math.sin(angle)
+                {/* Ring 3 - 24 points */}
+                {[...Array(24).keys()].map(i => {
+                  const angle = (i / 24) * 2 * Math.PI
+                  const x = 100 + 70 * Math.cos(angle)
+                  const y = 100 + 70 * Math.sin(angle)
                   return <circle key={i} cx={x} cy={y} r="2" fill="#96ceb4" />
+                })}
+
+                {/* Ring 4 - 32 points */}
+                {[...Array(32).keys()].map(i => {
+                  const angle = (i / 32) * 2 * Math.PI
+                  const x = 100 + 90 * Math.cos(angle)
+                  const y = 100 + 90 * Math.sin(angle)
+                  return <circle key={i} cx={x} cy={y} r="2" fill="#b39ddb" />
                 })}
                 
               </svg>
             </div>
             
             <div style={{ fontSize: '12px', color: darkMode ? '#ccc' : '#666', lineHeight: '1.3' }}>
-              <p style={{ margin: '0 0 0.5rem 0' }}><strong>Iterasjon 1:</strong> 37 punkter (senter + 6 + 12 + 18)</p>
-              <p style={{ margin: '0 0 0.5rem 0' }}><strong>Iterasjon 2:</strong> 19 punkter rundt beste område</p>
-              <p style={{ margin: '0 0 0.5rem 0' }}><strong>Iterasjon 3:</strong> 7 punkter for finjustering</p>
+              <p style={{ margin: '0 0 0.5rem 0' }}><strong>Engangssøk:</strong> 81 punkter (1 + 8 + 16 + 24 + 32)</p>
               <p style={{ margin: 0 }}><strong>Resultat:</strong> Topp 3 værplasser med score</p>
             </div>
           </div>
@@ -1372,6 +1398,7 @@ export default function App() {
               userLocation={userLocation}
               searchRadius={searchRadius}
               topWeatherSpots={topWeatherSpots}
+              searchProgress={searchProgress}
             />
             
             {/* Legend */}
