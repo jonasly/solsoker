@@ -203,7 +203,7 @@ const LeafletMap = ({ center, bestLocation, userLocation, searchRadius, topWeath
     }
       }, [bestLocation, userLocation, searchRadius, topWeatherSpots, searchProgress]) // Only update when these change
 
-      return <div ref={mapRef} style={{ width: '100%', height: '400px', borderRadius: 8 }} />
+      return <div ref={mapRef} style={{ width: '100%', height: window.innerWidth <= 768 ? '300px' : '400px', borderRadius: 8 }} />
 }
 
 // Glob-import av alle SVG-ikoner i src/assets/symbols
@@ -466,6 +466,24 @@ export default function App() {
     handleDrag(e.clientX, e.clientY)
   }
   const onMouseUp = () => {
+    dragRef.current = false
+  }
+  
+  // Touch event handlers for mobile support
+  const onTouchStart = (e) => {
+    e.preventDefault()
+    dragRef.current = true
+    const touch = e.touches[0]
+    handleDrag(touch.clientX, touch.clientY)
+  }
+  const onTouchMove = (e) => {
+    e.preventDefault()
+    if (!dragRef.current) return
+    const touch = e.touches[0]
+    handleDrag(touch.clientX, touch.clientY)
+  }
+  const onTouchEnd = (e) => {
+    e.preventDefault()
     dragRef.current = false
   }
 
@@ -842,7 +860,7 @@ export default function App() {
       <div style={{ 
         fontFamily: "'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif",
         fontWeight: 200,
-        padding: '2rem', 
+        padding: window.innerWidth <= 768 ? '1rem' : '2rem', 
         maxWidth: 900, 
         margin: 'auto',
         backgroundColor: darkMode ? '#1a1a1a' : '#fff',
@@ -875,6 +893,20 @@ export default function App() {
           }
           50% {
             opacity: 0.9;
+          }
+        }
+        
+        /* Mobile-specific styles */
+        @media (max-width: 768px) {
+          /* Make touch targets larger on mobile */
+          button {
+            min-height: 44px !important;
+            min-width: 44px !important;
+          }
+          
+          /* Better mobile padding */
+          body {
+            padding: 0 !important;
           }
         }
       `}</style>
@@ -1063,6 +1095,9 @@ export default function App() {
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
             style={{ touchAction: 'none', cursor: 'pointer', userSelect: 'none', background: darkMode ? '#2a2a2a' : '#f0f8f0', borderRadius: 8, overflow: 'visible' }}
           >
             {/* Triangle */}
