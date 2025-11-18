@@ -26,18 +26,17 @@ export default async function handler(req, res) {
     // Uses /complete endpoint for full weather data including gusts
     const url = `https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`
     
-    // Make request to Met.no with proper headers and timeout
+    // Make request to Met.no with proper headers
     const upstream = await fetch(url, {
       headers: {
         // Required by Met.no Terms of Service - identifies our application
-        'User-Agent': 'solsoker/1.0 (contact: jonas@example.com)'
-      },
-      // 10 second timeout to prevent hanging requests on mobile
-      signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
+        'User-Agent': 'Solsoker Weather App/1.0 (https://github.com/your-repo)'
+      }
     })
 
     // Check if Met.no API returned an error
     if (!upstream.ok) {
+      console.error(`Met.no error ${upstream.status}`)
       res.status(upstream.status).json({ error: `Upstream error ${upstream.status}` })
       return
     }
@@ -52,6 +51,7 @@ export default async function handler(req, res) {
     
   } catch (err) {
     // Return 500 error with details for debugging
+    console.error('Weather proxy error:', err)
     res.status(500).json({ error: 'Proxy error', details: String(err) })
   }
 }

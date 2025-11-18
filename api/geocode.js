@@ -39,18 +39,22 @@ export default async function handler(req, res) {
       url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1&countrycodes=no`
     }
 
-    // Make request to Nominatim with proper headers and timeout
+    // Add delay to respect Nominatim rate limits (max 1 request per second)
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
+    // Make request to Nominatim with proper headers
     const upstream = await fetch(url, {
       headers: {
         // Required by Nominatim Terms of Service - identifies our application
-        'User-Agent': 'solsoker/1.0 (contact: jonas@example.com)'
-      },
-      // 10 second timeout to prevent hanging requests on mobile
-      signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
+        'User-Agent': 'Solsoker Weather App/1.0 (https://github.com/your-repo)',
+        'Accept': 'application/json',
+        'Accept-Language': 'no,en;q=0.9'
+      }
     })
 
     // Check if Nominatim API returned an error
     if (!upstream.ok) {
+      console.error(`Nominatim error ${upstream.status}: ${await upstream.text()}`)
       res.status(upstream.status).json({ error: `Upstream error ${upstream.status}` })
       return
     }
@@ -65,6 +69,7 @@ export default async function handler(req, res) {
     
   } catch (err) {
     // Return 500 error with details for debugging
+    console.error('Geocode proxy error:', err)
     res.status(500).json({ error: 'Proxy error', details: String(err) })
   }
 }
