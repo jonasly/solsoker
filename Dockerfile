@@ -7,11 +7,6 @@ COPY package.json ./
 
 # Installer avhengigheter (lager package-lock automatisk)
 RUN npm install
-RUN npm install @react-google-maps/api
-
-#RUN npm install react react-dom react-leaflet leaflet \
-#    --save \
-#    --legacy-peer-deps
 
 # Kopier resten av koden
 COPY . .

@@ -31,14 +31,19 @@ app.get('/api/geocode', async (req, res) => {
       url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1&countrycodes=no`;
     }
 
+    // Add delay to respect Nominatim rate limits (max 1 request per second)
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     const upstream = await fetch(url, {
       headers: {
-        'User-Agent': 'solsoker/1.0 (contact: jonas@example.com)'
-      },
-      signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
+        'User-Agent': 'Solsoker Weather App/1.0 (https://github.com/your-repo)',
+        'Accept': 'application/json',
+        'Accept-Language': 'no,en;q=0.9'
+      }
     });
 
     if (!upstream.ok) {
+      console.error(`Nominatim error ${upstream.status}: ${await upstream.text()}`);
       res.status(upstream.status).json({ error: `Upstream error ${upstream.status}` });
       return;
     }
@@ -48,6 +53,7 @@ app.get('/api/geocode', async (req, res) => {
     res.status(200).json(data);
     
   } catch (err) {
+    console.error('Geocode proxy error:', err);
     res.status(500).json({ error: 'Proxy error', details: String(err) });
   }
 });
@@ -65,12 +71,12 @@ app.get('/api/met', async (req, res) => {
     
     const upstream = await fetch(url, {
       headers: {
-        'User-Agent': 'solsoker/1.0 (contact: jonas@example.com)'
-      },
-      signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
+        'User-Agent': 'Solsoker Weather App/1.0 (https://github.com/your-repo)'
+      }
     });
 
     if (!upstream.ok) {
+      console.error(`Met.no error ${upstream.status}`);
       res.status(upstream.status).json({ error: `Upstream error ${upstream.status}` });
       return;
     }
@@ -80,6 +86,7 @@ app.get('/api/met', async (req, res) => {
     res.status(200).json(data);
     
   } catch (err) {
+    console.error('Weather proxy error:', err);
     res.status(500).json({ error: 'Proxy error', details: String(err) });
   }
 });
