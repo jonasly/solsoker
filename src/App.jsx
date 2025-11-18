@@ -708,13 +708,31 @@ export default function App() {
     try {
       const geoRes = await fetch(`/api/geocode?q=${encodeURIComponent(manualLocation)}&limit=1`)
       const geoData = await geoRes.json()
-      if (geoData.length === 0) {
+      
+      // Validate response structure
+      if (!Array.isArray(geoData) || geoData.length === 0) {
+        setError('Fant ingen steder med det navnet. Prøv et annet søkeord.')
         setLoading(false)
         return
       }
+      
+      // Validate first result has required properties
+      if (!geoData[0] || !geoData[0].lat || !geoData[0].lon) {
+        setError('Ugyldig respons fra stedssøk. Prøv igjen.')
+        setLoading(false)
+        return
+      }
+      
       const { lat, lon } = geoData[0]
       const latNum = parseFloat(lat)
       const lngNum = parseFloat(lon)
+      
+      // Validate parsed coordinates
+      if (isNaN(latNum) || isNaN(lngNum)) {
+        setError('Ugyldige koordinater mottatt. Prøv et annet sted.')
+        setLoading(false)
+        return
+      }
       
       // Set location and show map for radius selection
       console.log('Setting location:', { lat: latNum, lng: lngNum, name: manualLocation })
@@ -746,8 +764,15 @@ export default function App() {
           10000
         )
         if (!active) return
-        setSuggestions(Array.isArray(data) ? data : [])
-      } catch {
+        // Validate that response is array and filter out invalid suggestions
+        if (Array.isArray(data)) {
+          const validSuggestions = data.filter(s => s && s.lat && s.lon)
+          setSuggestions(validSuggestions)
+        } else {
+          setSuggestions([])
+        }
+      } catch (err) {
+        console.error('Error fetching place suggestions:', err)
         if (!active) return
         setSuggestions([])
       } finally {
@@ -761,6 +786,12 @@ export default function App() {
   }, [manualLocation, hasSelectedSuggestion])
 
   const handlePickSuggestion = async (s) => {
+    // Validate suggestion has required properties
+    if (!s || !s.lat || !s.lon) {
+      setError('Ugyldig stedsforslag. Prøv et annet.')
+      return
+    }
+    
     const addr = s.address || {}
     const primary = addr.city || addr.town || addr.village || addr.hamlet || addr.neighbourhood || addr.suburb || s.display_name
     const parts = []
@@ -779,6 +810,13 @@ export default function App() {
     // Set location and show map for radius selection
     const lat = parseFloat(s.lat)
     const lng = parseFloat(s.lon)
+    
+    // Validate parsed coordinates
+    if (isNaN(lat) || isNaN(lng)) {
+      setError('Ugyldige koordinater fra stedsforslag. Prøv et annet.')
+      return
+    }
+    
     setMapCenter({ lat, lng })
     setUserLocation({ lat, lng, name: display })
     setShowMap(true)
